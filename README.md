@@ -32,16 +32,21 @@ material from either source.
   ball save) on touch — they have no collision at all, so the ball just rolls
   straight through them.
 - Two elevated **wireform ramps** (an open metal-wire rail, not a solid track —
-  the playfield art stays visible underneath as the ball rides the wire), a
-  drop-target bank ("I-N-D-Y"), rollover lanes, orbits, a
-  central idol scoop, slingshots, a mode ladder, "Eternal Life" multiball, ball
-  save, extra balls, nudge, and a proper tilt system that kills the flippers and
+  the playfield art stays visible underneath as the ball rides the wire): one
+  loops in a full figure-8 around the central idol scoop, the other arches
+  over the top of the table and snakes back down to drop the ball almost dead
+  centre between the two main flippers.
+- A drop-target bank ("I-N-D-Y"), rollover lanes, orbits, a central idol
+  scoop, slingshots, a mode ladder, "Eternal Life" multiball, ball save,
+  extra balls, nudge, and a proper tilt system that kills the flippers and
   eats your bonus if you shake the machine too hard.
 
 **Slot side**
 - A 5-reel, 10-payline slot machine ("Book of the Temple") running live in the
-  middle of the playfield, with wilds, scatters, free spins with an expanding
-  symbol, and its own paytable — all with original symbols.
+  middle of the playfield, dressed up as a real casino cabinet — bevelled gold
+  frame, ruby/emerald corner gems, a backlit glass window, glowing chase bulbs
+  around a marquee title header — with wilds, scatters, free spins with an
+  expanding symbol, and its own paytable, all with original symbols.
 - Every pinball switch you hit feeds energy into the slot's bet meter; every slot
   win of three-or-more matching symbols feeds a bonus back into the pinball game
   (extra balls, ball save, lit locks, spotted targets, multiplier bumps,

@@ -982,3 +982,133 @@ in this one turn. Flagged to the user rather than guessed at; will do it as its 
   (3) toggling audio off silences sound effects immediately, not just music; (4) vortex holes
   look like dirt pits, not glowing orbs/black holes; (5) flippers noticeably longer, main
   flippers draggable in edit mode; (6) chevron chase visible and animating above the flippers.
+
+## Part N — flipper/wall/drain geometry follow-through, both ramps redesigned, slot cabinet rebuild
+Continuation of the same round (M8 deferred the ramps; this part does them), plus the user's
+next message: `table.gd` inlane walls extended to match the already-lowered flippers, main
+flippers pushed to the requested 5%-from-bottom, the top wing raised as far as geometrically
+possible toward the requested 3%-from-top, the drain lowered again to match, and both ramps
+fully redesigned. Then the single highest-priority item of this entire round: a from-scratch
+visual rebuild of the slot cabinet in `slot_view.gd`. **None of this has been run in an actual
+Godot engine** — same standing caveat as every part before this one, but it applies with extra
+force here given how much of this part is brand-new geometry with no way to preview it.
+
+### N1 Inlane guide walls now actually follow the flippers
+`table._build_walls()`'s two inlane guide bands were still hard-coded to the flippers' Y from
+*before* this whole session's series of lowering rounds — every earlier round moved
+`FLIPPER_LEFT_PIVOT`/`_RIGHT_PIVOT` down but never touched these two `_add_band()` calls, so the
+walls increasingly stopped lining up with the palette as they moved (user: "i muri del flipper
+non li hai allungati, hai spostato solo le palette"). Fixed at the root instead of re-adding
+another one-off number: both bands' end point now reads `FLIPPER_LEFT_PIVOT.y - 30.0` /
+`FLIPPER_RIGHT_PIVOT.y - 30.0` (the offset the original band already had relative to the
+original pivot), so any future pivot move keeps the walls in sync automatically.
+
+### N2 Main flippers to 5% from the bottom edge, drain lowered to match
+User: "di sotto facciamo al 5%" (screen height 1280, so 5% up from the bottom = y=1216).
+`FLIPPER_LEFT_PIVOT`/`_RIGHT_PIVOT`: 1130 -> 1162 — the flipper TIP at rest (pivot +
+`LENGTH*sin(28°)` = pivot + 54.09, `LENGTH`=115.2 from Part M5) lands almost exactly on y=1216.
+`DRAIN_TOP`: 1215 -> 1240 (user: "c'è la dropzone abbassa anche la dropzone") to keep roughly
+the same tip-to-drain clearance as before (~24px now vs ~31px previously) rather than squeezing
+it as the flippers moved down into where the drain used to start. Both pivots remain draggable
+in the layout editor if this clearance needs tuning after an actual play-test.
+
+### N3 Top wing flipper: literal 3%-from-top is impossible anywhere on this table
+User: "il flipper in alto può essere alzato fino al 3% dal bordo superiore dello schermo".
+Read literally, 3% of the 1280-tall screen is y=38.4 from the top. The playfield's top boundary
+is a semicircular arc (`CENTER`=(360,420), `TOP_RADIUS`=340) whose highest point is y=80 at dead
+centre and *lower* everywhere else — at `WING_TOP_LEFT_PIVOT`'s x=170 the arc sits at y≈138.
+So even the single best spot on the whole table (dead centre) is only ~6.25% from the top edge,
+and this off-centre wing can't get anywhere near 3% without its pivot ending up outside the
+arc, i.e. outside the table. Applied the practical alternative instead of silently doing
+nothing or blocking on a question: raised it as far as the arc + the wing's own swept arm
+(~86px at `WING_FLIPPER_SCALE`) allow with a safety margin — `WING_TOP_LEFT_PIVOT.y`: 250 -> 220.
+Draggable in the editor if the user wants to push closer to the wall and accept some clipping risk.
+
+### N4 Both ramps redesigned
+`ramp.gd` itself needed no changes — it already drives the ball along *any* `PackedVector2Array`
+centreline by arc length (see Part D), so any shape, however sharp or self-crossing, is exactly
+as safe to the physics as the simple ones before. Only `table.gd`'s point arrays changed.
+- **R1 "TEMPLE RAMP"** (user: "quella sotto deve fare un disegno ad 8... intorno all'oracolo"):
+  the mouth/rise (528,812)->(528,610) and the return tail down to (55,930) are unchanged; the
+  middle is now two ~90px-radius loops pinched at `SCOOP_POS` (360,300) — the right loop (centre
+  445,300) swept over its *top* half, the left loop (centre 275,300) swept over its *bottom*
+  half, so the two arcs cross exactly once at the scoop and read as a real "∞" figure-8 instead
+  of the old single sweep across the top. The loops pass close over 2 of the 3 round bumpers and
+  both pop bumpers — intentional, not an oversight: wireform rails arching directly over other
+  playfield elements is the entire point of the style (same as the Indiana-Jones reference photo
+  the user sent earlier), and the rail `Line2D`s draw at z_index 7-8, well above the bumpers.
+- **R2 "IDOL RAMP"** (user: "quella superiore deve fare mezza arcata per poi chiudersi al
+  centro, stile serpente", plus the earlier "fai scendere la palla quasi al centro del
+  flipper"): rise unchanged; a single arch now sweeps right-to-left across the top of the table
+  (mirroring R1's rise, staying clear of the scoop/R1 loops which already own that space), a
+  short snake wiggles back toward the right while staying above y=566 (the slot window's top
+  edge), then a straight run descends on the *right* side of the slot window (world window is
+  roughly x 130-530, y 566-806 once the slot's own scale/position are applied; this column sits
+  at local x~540-565, comfortably outside it and roughly parallel to R1's own rise column
+  further left at x~528-535 — two ramps running side by side down the right is already this
+  table's established look). The last few points curve left to x=327 — the exact midpoint
+  between the two main flipper pivots (214, 440) — landing at y=860, so the ball drops "quasi al
+  centro del flipper" from a genuine height instead of exiting near the top of the table like
+  before. `R1_COMMIT`/`R2_COMMIT` unchanged (both still lie on the untouched rise segments);
+  `R2_EXIT_DIR` changed from (-1, 0.3) to (0, 1) — straight down, matching the now-centred exit.
+  **Entirely unverified geometry** — this is hand-placed points reasoned from the existing
+  consts (`SCOOP_POS`, bumper/wing positions, the slot window rect) with no way to render or
+  physically test it; if a segment reads as visually crossing something badly or the ball
+  doesn't ride it smoothly, it's the first thing to check and adjust by hand or via new
+  layout-editor entries.
+
+### N5 Slot cabinet visual rebuild — the round's top priority
+User, verbatim, marked as the single most important thing in this round: "la slot me la devi
+fare uscire fuori bellissima che non sfigurerebbe nemmeno in un casino di las vegas". No
+external art is available in this sandbox (no image generation, no asset fetch), so the whole
+upgrade is procedural Godot primitives — the same constraint and technique already used for
+every other visual element in this project, just applied more thoroughly here. All changes are
+in `slot_view.gd`; no logic/state-machine code touched, so spin/evaluate/payout behaviour is
+identical to before this part.
+- **Bevelled cabinet edge**: the old single flat `GOLD` rectangle frame is now three nested
+  rectangles (`GOLD_DARK` outer, `GOLD` mid, `GOLD_LIGHT` inner) at the same outer extent as
+  before, reading as a moulded metal case instead of a flat rectangle. A black, offset drop
+  shadow polygon sits behind the whole cabinet for lift.
+- **Corner gems**: four small diamond `Polygon2D`s at the outer corners, alternating new `RUBY`
+  (#c0203a) / `EMERALD` (#1f8a52) consts.
+- **Backlit reel window**: a warm radial glow (`GradientTexture2D`, `FILL_RADIAL`, built once
+  and cached in `_cached_glow_tex`/`_glow_tex()`) sits behind the reels at low opacity, plus a
+  soft white "glass" highlight polygon across the window's upper third — together read as a lit
+  display case with a glass reflection instead of a flat dark rectangle.
+- **Real glow bulbs**: `_make_circle()` (used for both the marquee chase lamps and the TEMPLE
+  POWER meter lamps) now returns a small container node holding a soft radial-gradient halo
+  sprite behind a bright core circle, both plain white, instead of one flat-coloured
+  `Polygon2D`. The two call sites that used to set `.color` directly (`_update_marquee`,
+  `_update_energy_lamps`) now set `.modulate` on the container instead — Godot multiplies a
+  parent's `modulate` into its children's rendering, so the exact same on/off/chase/rainbow
+  logic as before now lights up an actual glowing bulb (core + bleeding halo) rather than a flat
+  dot, with no change to the chase timing/colour math itself.
+- **Marquee title header**: a new `_build_title()` adds a thin glowing gold bar and a big
+  "BOOK OF THE TEMPLE" label above the cabinet (positioned well clear of the existing
+  free-spins/idle label row below it — checked by hand against both labels' Y coordinates and
+  font heights, not rendered).
+- **Marquee-sign typography everywhere**: `_make_label()` (the one helper every label in this
+  file goes through — credit count, free spins, idle prompt, bonus banner, BIG WIN, book
+  reveal) now also adds a dark outline (`font_outline_color` + `outline_size` theme overrides,
+  scaled to each label's own font size) on top of the existing drop shadow, for a chunky
+  casino-signage look instead of default flat UI text.
+- **Explicitly not attempted this pass**: side cabinet pilasters and an animated shimmer sweep
+  across the frame were considered and dropped to keep this batch contained and lower-risk —
+  the changes above are already untested in-engine, and stacking more speculative geometry on
+  top of them before getting feedback seemed like the wrong trade given the stakes the user
+  attached to this specific item. Straightforward to add as a follow-up once this pass is
+  confirmed to look right.
+
+## Acceptance (Part N) — not yet run
+- N-A1 no Rules/SlotMachine logic touched in this part; every earlier test should be unaffected.
+- N-A2 visual/manual checks, in the order they matter most given the user's stated priorities:
+  (1) **the slot** — does the cabinet read as a real casino machine now (bevelled frame, corner
+  gems, backlit glass, glowing chase bulbs, the "BOOK OF THE TEMPLE" marquee header, chunky
+  outlined text everywhere) instead of the old flat rectangle? Any label overlapping another?
+  (2) both ramps — do they physically ride smoothly with no visual snag, does R1 read as a
+  figure-8 around the scoop, does R2's arch-then-snake avoid visually cutting across the slot's
+  new glass front, does the ball land close to centre between the flippers off R2; (3) the
+  inlane guide walls now visibly reach the lowered flippers with no gap; (4) main flipper tips
+  sit close to the drain with a small but real gap (should not stick into the drain sensor);
+  (5) the top-left wing — does it still clear the curved ceiling through its full swing at its
+  new, higher position.

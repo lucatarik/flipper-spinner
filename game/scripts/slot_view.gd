@@ -32,6 +32,9 @@ const ENERGY_MAX := 8
 
 const GOLD := Color("#d4a017")
 const GOLD_LIGHT := Color("#ffd24a")
+const GOLD_DARK := Color("#8a6b0f")
+const RUBY := Color("#c0203a")
+const EMERALD := Color("#1f8a52")
 const LAPIS := Color("#151a3a")
 const LAPIS_DARK := Color("#0b0e22")
 const STONE := Color("#6b6b6b")
@@ -71,6 +74,8 @@ var _spin_scroll := 0.0
 var _book_flip := 0.0
 var _book_flip_symbol := ""
 var _expanded: Array = []
+
+var _cached_glow_tex: GradientTexture2D
 
 var _reel_textures: Array = []
 var _marquee_lamps: Array = []
@@ -463,18 +468,18 @@ func _update_book_flip(delta: float) -> void:
 func _update_marquee() -> void:
 	var rainbow := _free_spins_active
 	for i in _marquee_lamps.size():
-		var lamp: Polygon2D = _marquee_lamps[i]
+		var lamp: Node2D = _marquee_lamps[i]
 		if not _active and not rainbow:
-			lamp.color = LAPIS_DARK.lerp(GOLD, 0.12)
+			lamp.modulate = LAPIS_DARK.lerp(GOLD, 0.12)
 			continue
 		var phase := _marquee_time * 6.0 - float(i) * 0.7
 		var on := 0.5 + 0.5 * sin(phase)
 		if rainbow:
-			lamp.color = Color.from_hsv(fmod(_marquee_time * 0.35 + float(i) / _marquee_lamps.size(), 1.0), 0.75, 0.95)
+			lamp.modulate = Color.from_hsv(fmod(_marquee_time * 0.35 + float(i) / _marquee_lamps.size(), 1.0), 0.75, 0.95)
 		else:
-			lamp.color = GOLD_LIGHT.lerp(LAPIS_DARK, 1.0 - on * 0.85)
+			lamp.modulate = GOLD_LIGHT.lerp(LAPIS_DARK, 1.0 - on * 0.85)
 		if _frame_glow > 0.0:
-			lamp.color = lamp.color.lerp(Color(1.0, 1.0, 1.0), _frame_glow * 0.8)
+			lamp.modulate = lamp.modulate.lerp(Color(1.0, 1.0, 1.0), _frame_glow * 0.8)
 
 func _flash_reel_frame() -> void:
 	_frame_glow = 1.0
@@ -482,7 +487,7 @@ func _flash_reel_frame() -> void:
 func _update_energy_lamps() -> void:
 	for i in _power_lamps.size():
 		var on: bool = i < slot.energy
-		_power_lamps[i].color = GOLD_LIGHT if on else Color(0.16, 0.13, 0.08)
+		_power_lamps[i].modulate = GOLD_LIGHT if on else Color(0.16, 0.13, 0.08)
 
 func _update_free_label() -> void:
 	_free_spins_active = slot.free_spins > 0
@@ -494,15 +499,62 @@ func _update_free_label() -> void:
 
 # --- construction -----------------------------------------------------------
 
+## Casino-cabinet rebuild (user's top-priority ask this round: make the slot
+## "bellissima, che non sfigurerebbe in un casino di Las Vegas"). No external
+## art is available in this sandbox, so the upgrade is entirely procedural:
+## a drop shadow for lift, a 3-tone bevelled gold edge instead of one flat
+## rectangle, ruby/emerald corner gems, a warm radial backlight glow behind
+## the reels, a soft glass highlight streak, and a marquee title header
+## with glowing chase bulbs (see _make_circle) replacing the old flat dots.
 func _build_frame() -> void:
-	var outer := Polygon2D.new()
-	outer.polygon = PackedVector2Array([
+	var shadow := Polygon2D.new()
+	shadow.polygon = PackedVector2Array([
 		WINDOW.position + Vector2(-14, -14), WINDOW.position + Vector2(WINDOW.size.x + 14, -14),
-		WINDOW.position + Vector2(WINDOW.size.x + 14, WINDOW.size.y + 14),
-		WINDOW.position + Vector2(-14, WINDOW.size.y + 14)])
-	outer.color = GOLD
-	outer.z_index = 1
-	add_child(outer)
+		WINDOW.position + WINDOW.size + Vector2(14, 14), WINDOW.position + Vector2(-14, WINDOW.size.y + 14)])
+	shadow.color = Color(0, 0, 0, 0.35)
+	shadow.position = Vector2(7, 9)
+	shadow.z_index = 0
+	add_child(shadow)
+
+	# 3-tone bevel: dark outer edge, gold midtone, bright inner highlight —
+	# reads as a moulded metal case instead of a flat gold rectangle.
+	var outer_dark := Polygon2D.new()
+	outer_dark.polygon = PackedVector2Array([
+		WINDOW.position + Vector2(-14, -14), WINDOW.position + Vector2(WINDOW.size.x + 14, -14),
+		WINDOW.position + WINDOW.size + Vector2(14, 14), WINDOW.position + Vector2(-14, WINDOW.size.y + 14)])
+	outer_dark.color = GOLD_DARK
+	outer_dark.z_index = 1
+	add_child(outer_dark)
+
+	var outer_mid := Polygon2D.new()
+	outer_mid.polygon = PackedVector2Array([
+		WINDOW.position + Vector2(-9, -9), WINDOW.position + Vector2(WINDOW.size.x + 9, -9),
+		WINDOW.position + WINDOW.size + Vector2(9, 9), WINDOW.position + Vector2(-9, WINDOW.size.y + 9)])
+	outer_mid.color = GOLD
+	outer_mid.z_index = 1
+	add_child(outer_mid)
+
+	var outer_hi := Polygon2D.new()
+	outer_hi.polygon = PackedVector2Array([
+		WINDOW.position + Vector2(-4, -4), WINDOW.position + Vector2(WINDOW.size.x + 4, -4),
+		WINDOW.position + WINDOW.size + Vector2(4, 4), WINDOW.position + Vector2(-4, WINDOW.size.y + 4)])
+	outer_hi.color = GOLD_LIGHT
+	outer_hi.z_index = 1
+	add_child(outer_hi)
+
+	# Jewel corner ornaments on the outer bevel edge, alternating ruby/emerald.
+	var gem_colors := [RUBY, EMERALD, RUBY, EMERALD]
+	var corners := [
+		WINDOW.position + Vector2(-14, -14), WINDOW.position + Vector2(WINDOW.size.x + 14, -14),
+		WINDOW.position + WINDOW.size + Vector2(14, 14), WINDOW.position + Vector2(-14, WINDOW.size.y + 14),
+	]
+	for i in corners.size():
+		var gem := Polygon2D.new()
+		gem.polygon = PackedVector2Array([Vector2(0, -9), Vector2(9, 0), Vector2(0, 9), Vector2(-9, 0)])
+		gem.position = corners[i]
+		gem.color = gem_colors[i]
+		gem.z_index = 2
+		add_child(gem)
 
 	var inner := Polygon2D.new()
 	inner.polygon = PackedVector2Array([
@@ -521,6 +573,26 @@ func _build_frame() -> void:
 	dark.z_index = 3
 	add_child(dark)
 
+	# Warm backlight glow behind the reels, like a lit display case, plus a
+	# soft glass highlight streak across the upper third of the window.
+	var glow := Sprite2D.new()
+	glow.texture = _glow_tex()
+	var glow_span := maxf(WINDOW.size.x, WINDOW.size.y) * 1.15
+	glow.scale = Vector2.ONE * (glow_span / 64.0)
+	glow.modulate = Color(GOLD_LIGHT.r, GOLD_LIGHT.g, GOLD_LIGHT.b, 0.22)
+	glow.position = WINDOW.position + WINDOW.size * 0.5
+	glow.z_index = 3
+	add_child(glow)
+
+	var glass := Polygon2D.new()
+	glass.polygon = PackedVector2Array([
+		WINDOW.position + Vector2(6, 6), WINDOW.position + Vector2(WINDOW.size.x - 6, 6),
+		WINDOW.position + Vector2(WINDOW.size.x - 6, 6 + WINDOW.size.y * 0.3),
+		WINDOW.position + Vector2(6, 6 + WINDOW.size.y * 0.22)])
+	glass.color = Color(1, 1, 1, 0.06)
+	glass.z_index = 3
+	add_child(glass)
+
 	# reel separators
 	for r in range(1, REELS):
 		var sep := Line2D.new()
@@ -530,6 +602,40 @@ func _build_frame() -> void:
 		sep.default_color = Color(1, 1, 1, 0.08)
 		sep.z_index = 7
 		add_child(sep)
+
+	_build_title()
+
+func _glow_tex() -> GradientTexture2D:
+	if _cached_glow_tex == null:
+		var g := Gradient.new()
+		g.set_color(0, Color(1, 1, 1, 1))
+		g.set_color(1, Color(1, 1, 1, 0))
+		var tex := GradientTexture2D.new()
+		tex.gradient = g
+		tex.width = 64
+		tex.height = 64
+		tex.fill = GradientTexture2D.FILL_RADIAL
+		tex.fill_from = Vector2(0.5, 0.5)
+		tex.fill_to = Vector2(1.0, 0.5)
+		_cached_glow_tex = tex
+	return _cached_glow_tex
+
+## Marquee title header above the cabinet — a thin glowing bar plus a big
+## outlined title label (see _make_label's new font-outline treatment).
+func _build_title() -> void:
+	var bar := Line2D.new()
+	var bar_y := WINDOW.position.y - 82.0
+	bar.points = PackedVector2Array([
+		Vector2(WINDOW.position.x - 6, bar_y), Vector2(WINDOW.position.x + WINDOW.size.x + 6, bar_y)])
+	bar.width = 3.0
+	bar.default_color = GOLD_LIGHT
+	bar.z_index = 8
+	add_child(bar)
+
+	var title := _make_label("BOOK OF THE TEMPLE", 30, GOLD_LIGHT)
+	title.position = Vector2(WINDOW.position.x, bar_y - 40.0)
+	title.size.x = WINDOW.size.x
+	add_child(title)
 
 func _build_reels() -> void:
 	for r in REELS:
@@ -625,18 +731,29 @@ func _build_lamps() -> void:
 		var lx := WINDOW.position.x + 24.0 + i * 34.0
 		_power_lamps.append(_make_circle(Vector2(lx, lamp_y), 7.0, 6))
 
-func _make_circle(pos: Vector2, radius: float, z: int) -> Polygon2D:
+## Real glow bulbs instead of flat dots: a soft radial halo behind a bright
+## core, both white so the returned container's `.modulate` tints (and dims)
+## both together — callers keep setting a colour exactly as before, just on
+## `.modulate` instead of `.color` (see _update_marquee / _update_energy_lamps).
+func _make_circle(pos: Vector2, radius: float, z: int) -> Node2D:
+	var holder := Node2D.new()
+	holder.position = pos
+	holder.z_index = z
+	add_child(holder)
+	var halo := Sprite2D.new()
+	halo.texture = _glow_tex()
+	halo.scale = Vector2.ONE * (radius * 3.2 / 32.0)
+	halo.modulate = Color(1, 1, 1, 0.55)
+	holder.add_child(halo)
 	var pts := PackedVector2Array()
 	for i in 16:
 		var a := TAU * float(i) / 16.0
 		pts.append(Vector2(cos(a), sin(a)) * radius)
-	var p := Polygon2D.new()
-	p.polygon = pts
-	p.position = pos
-	p.color = GOLD_LIGHT
-	p.z_index = z
-	add_child(p)
-	return p
+	var core := Polygon2D.new()
+	core.polygon = pts
+	core.color = Color.WHITE
+	holder.add_child(core)
+	return holder
 
 func _build_labels() -> void:
 	_count_label = _make_label("", 30, GOLD_LIGHT)
@@ -679,6 +796,11 @@ func _make_label(text: String, size: int, colour: Color) -> Label:
 	l.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.9))
 	l.add_theme_constant_override("shadow_offset_x", 2)
 	l.add_theme_constant_override("shadow_offset_y", 2)
+	# Chunky dark outline scaled to font size, for a marquee-sign look on
+	# every label instead of Godot's default flat UI text (user's top
+	# priority this round: the slot needs to read as a real casino cabinet).
+	l.add_theme_color_override("font_outline_color", Color(0.05, 0.03, 0.02, 0.9))
+	l.add_theme_constant_override("outline_size", maxi(2, int(size * 0.12)))
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	l.z_index = 8
 	return l

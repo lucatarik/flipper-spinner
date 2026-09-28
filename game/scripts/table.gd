@@ -39,7 +39,10 @@ const DIVIDER_THICK := 14.0
 const LEFT_WALL_INNER := 20.0
 const DIVIDER_INNER := 634.0
 const OUTER_RIGHT_INNER := 700.0
-const DRAIN_TOP := 1215.0
+## Lowered 25px (1215->1240, user request: "abbassa anche la dropzone") to
+## follow the main flippers lowering further down below — keeps the same kind
+## of gap between the flipper tips and the drain instead of squeezing it.
+const DRAIN_TOP := 1240.0
 const LANE_FLOOR_Y := 1175.0
 const SERVE_POS := Vector2(674.0, 1135.0)
 
@@ -56,16 +59,16 @@ const SIDE_BUMPERS := [
 	{"pos": Vector2(70, 760), "normal": Vector2.RIGHT},
 	{"pos": Vector2(619, 821), "normal": Vector2.LEFT},
 ]
-## Lowered 20px (user request: "abbassa le palette... fino al 4% del bordo
-## inferiore"). A literal reading of "4% from the bottom edge" (~51px, putting
-## the pivot at y~1229) would land INSIDE the drain zone (y 1215-1280, same x
-## range as these flippers) — that would break drain detection, so this is a
-## safer partial move (~31px clearance to DRAIN_TOP at rest with the now-20%-
-## longer flipper). Both main flippers are now draggable in the layout editor
-## (E) too, so push further yourself if this isn't low enough — watch the
-## drain gap between the tips if you do.
-const FLIPPER_LEFT_PIVOT := Vector2(214, 1130)
-const FLIPPER_RIGHT_PIVOT := Vector2(440, 1130)
+## Lowered further (user request: "di sotto facciamo al 5%", i.e. 5% from the
+## bottom screen edge). Screen height is 1280, so 5% up from the bottom is
+## y=1216 — that's where the flipper TIP sits at rest (pivot + LENGTH*sin(28°)
+## = pivot + 54.09), giving pivot_y = 1216 - 54.09 ≈ 1162. DRAIN_TOP was moved
+## to 1240 in lockstep (see above) so there's still a ~24px gap between the
+## tips and the drain at rest — tighter than the previous ~31px but still
+## clear of the drain sensor. Both main flippers are draggable in the layout
+## editor (E) too, so nudge further yourself if you want more/less clearance.
+const FLIPPER_LEFT_PIVOT := Vector2(214, 1162)
+const FLIPPER_RIGHT_PIVOT := Vector2(440, 1162)
 const PLUNGER_POS := Vector2(674, 1150)
 
 ## Extra "wing" flipper pair, higher up in the open lanes either side of the slot
@@ -86,7 +89,17 @@ const WING_RIGHT_PIVOT := Vector2(535, 870)
 ## lanes. Same size as the lower pair (WING_FLIPPER_SCALE, user request — was
 ## smaller); if it now clips something in that tighter upper pocket, nudge it
 ## with the layout editor (E) rather than shrinking it back down.
-const WING_TOP_LEFT_PIVOT := Vector2(170, 250)
+## Raised 30px (user request: "il flipper in alto può essere alzato fino al 3%
+## dal bordo superiore dello schermo"). Literal 3% of the 1280-tall screen is
+## y=38.4 from the top — geometrically impossible anywhere on this table: the
+## playfield's curved top wall is a semicircle (CENTER, TOP_RADIUS=340) whose
+## highest point is y=80 at dead centre (x=360) and y≈138 at this flipper's
+## x=170, so even the best-case spot on the whole table is only ~6.25% from
+## the top edge, let alone this off-centre one. 250->220 is close to the
+## practical ceiling once the wing's swept arm (~86px at WING_FLIPPER_SCALE)
+## is kept clear of that curved wall — it's draggable in the layout editor (E)
+## if you want to push it further and accept some risk of clipping the arc.
+const WING_TOP_LEFT_PIVOT := Vector2(170, 220)
 
 ## A right-side wing flipper hugging the right wall (the shooter-lane divider,
 ## inner face x=634) at about slot height, in the pocket between the INDY
@@ -128,26 +141,56 @@ const SLING_RIGHT_POLY := [Vector2(579, 880), Vector2(579, 990), Vector2(489, 10
 const SLING_RIGHT_KICK := Vector2(-0.868, -0.497)
 
 ## D2 ramp centrelines (logical px). Arcs are approximated by short chamfer points.
+## R1 redesigned into a figure-8 around the idol scoop (user request: "quella
+## sotto deve fare un disegno ad 8... intorno all'oracolo"). Two ~90px-radius
+## loops pinched at SCOOP_POS (360,300): the right loop (centre 445,300) is
+## swept over its TOP half, the left loop (centre 275,300) over its BOTTOM
+## half, so the two arcs cross once right at the scoop, reading as a proper
+## "∞" when drawn — a real figure-8, not just a single sweep like before. The
+## loops pass close over 2 of the 3 round bumpers and both pop bumpers; that's
+## intentional (wireform rails arching directly over other playfield elements
+## is the whole point of the style, same as the reference Indiana-Jones ramp
+## photo) since the rail Line2D nodes draw at z_index 7-8, well above bumpers.
+## Mouth/rise and the return tail down to the left inlane are unchanged.
 const R1_NAME := "TEMPLE RAMP"
 const R1_POINTS := [
 	Vector2(528, 812), Vector2(528, 700), Vector2(528, 610),
-	Vector2(527, 595), Vector2(524, 581), Vector2(518, 569), Vector2(509, 560),
-	Vector2(500, 556), Vector2(490, 555), Vector2(200, 555),
-	Vector2(150, 558), Vector2(128, 566), Vector2(122, 570), Vector2(116, 577),
-	Vector2(112, 590), Vector2(112, 700), Vector2(112, 755),
+	Vector2(532, 480), Vector2(535, 300),
+	Vector2(523, 255), Vector2(490, 222), Vector2(445, 210), Vector2(400, 222), Vector2(367, 255), Vector2(355, 300),
+	Vector2(365, 300), Vector2(353, 345), Vector2(320, 378), Vector2(275, 390), Vector2(230, 378), Vector2(197, 345), Vector2(185, 300),
+	Vector2(150, 340), Vector2(118, 430), Vector2(106, 520), Vector2(112, 590),
+	Vector2(112, 700), Vector2(112, 755),
 	Vector2(108, 790), Vector2(101, 825), Vector2(92, 858), Vector2(81, 888),
 	Vector2(69, 910), Vector2(55, 930),
 ]
 const R1_COMMIT := Vector2(528, 640)
 const R1_EXIT_DIR := Vector2(0, 1)
+## R2 redesigned as a half-arch that then snakes back down and closes near the
+## centre (user request: "quella superiore deve fare mezza arcata per poi
+## chiudersi al centro, stile serpente", plus the earlier "fai scendere la
+## palla quasi al centro del flipper"). Rise unchanged; then a single arch
+## sweeps right-to-left across the top of the table (mirroring R1's mouth-side
+## rise, staying clear of the scoop/R1 loops which own that space); a short
+## snake wiggles back toward the right, then a straight run descends on the
+## RIGHT side of the slot window (window spans world x 130-530, y 566-806;
+## this column sits at x~540-565, a clean ~10-35px outside it, and roughly
+## parallel to R1's own rise column at x~528-535 further left — two ramps
+## running side by side down the right side is already this table's style).
+## Final points curve left to land at x=327, the midpoint between the two
+## main flipper pivots (214, 440), so the ball drops "almost dead centre
+## between the flippers" from y=860 — comfortable fall height for a catch.
 const R2_NAME := "IDOL RAMP"
 const R2_POINTS := [
-	Vector2(590, 452), Vector2(590, 340), Vector2(588, 300), Vector2(578, 250),
-	Vector2(560, 200), Vector2(530, 165), Vector2(500, 143), Vector2(460, 128),
-	Vector2(425, 122),
+	Vector2(590, 452), Vector2(590, 340), Vector2(588, 300),
+	Vector2(582, 245), Vector2(560, 190), Vector2(520, 148), Vector2(465, 118),
+	Vector2(400, 103), Vector2(335, 110), Vector2(280, 133), Vector2(240, 172), Vector2(212, 220),
+	Vector2(260, 270), Vector2(300, 235), Vector2(345, 275), Vector2(320, 330),
+	Vector2(370, 360), Vector2(410, 410), Vector2(460, 440), Vector2(500, 490), Vector2(540, 530),
+	Vector2(560, 570), Vector2(565, 650), Vector2(560, 740), Vector2(555, 810),
+	Vector2(450, 850), Vector2(380, 870), Vector2(327, 860),
 ]
 const R2_COMMIT := Vector2(590, 380)
-const R2_EXIT_DIR := Vector2(-1, 0.3)
+const R2_EXIT_DIR := Vector2(0, 1)
 
 const SCOOP_POS := Vector2(360, 300)
 const TARGET_X := 610.0
@@ -825,9 +868,12 @@ func _build_walls() -> void:
 	_add_band(Vector2(OUTER_RIGHT_INNER + WALL_THICK * 0.5, 420), Vector2(OUTER_RIGHT_INNER + WALL_THICK * 0.5, DRAIN_TOP), WALL_THICK)
 	# shooter-lane floor
 	_add_band(Vector2(DIVIDER_INNER, LANE_FLOOR_Y), Vector2(OUTER_RIGHT_INNER, LANE_FLOOR_Y), 16.0)
-	# inlane guides
-	_add_band(Vector2(20, 1000), Vector2(210, 1100), 16.0)
-	_add_band(Vector2(634, 1000), Vector2(444, 1100), 16.0)
+	# inlane guides — extended to keep tracking the flipper pivots (user request:
+	# "i muri del flipper non li hai allungati, hai spostato solo le palette").
+	# End Y follows pivot_y - 30, same offset the original (unmoved) walls had
+	# relative to the original pivot, now applied to FLIPPER_LEFT/RIGHT_PIVOT.y.
+	_add_band(Vector2(20, 1000), Vector2(210, FLIPPER_LEFT_PIVOT.y - 30.0), 16.0)
+	_add_band(Vector2(634, 1000), Vector2(444, FLIPPER_RIGHT_PIVOT.y - 30.0), 16.0)
 	# top rollover lane separators
 	for x in LANE_POST_XS:
 		_add_band(Vector2(x, LANE_TOP), Vector2(x, LANE_BOTTOM), 10.0)
