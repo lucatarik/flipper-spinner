@@ -245,3 +245,82 @@ Autoload `Sfx` (`game/scripts/sfx.gd`): `play(name: String, pitch := 1.0, db := 
 - SFX stay synthesized by gen_sfx.py, but `Sfx` first looks for a drop-in override
   `res://assets/sfx/override/<name>.ogg|.wav` so CC0 recordings (e.g. OpenGameArt) can replace
   any sound without code changes. Every external asset must be credited in CREDITS.md.
+
+---
+# Part C — user feedback round 2 (more bumpers, slot trio bonuses, extra balls, nudge/tilt)
+
+## C1 More bumpers (physics, all use existing bumper.gd behaviour + glow + sound + `switch_hit("bumper")`)
+- Playfield pop bumpers (radius 26, bumper.png 56 px): (150,330) and (510,330).
+- Side wall bumpers (half-disc kicker, radius 22, flat side on the wall, kick 750 px/s away from
+  the wall along the disc normal): left on the left wall at (20,860) bulging right; right on the
+  divider at (634,820) bulging left. Rules event: `bumper` (same scoring/mode qualify).
+- Must not block: left orbit lane (x 20..95, y 330..780), INDY bank, inlanes, slot area.
+
+## C2 Slot: every 3-of-a-kind ("tris") on a payline gives a pinball bonus
+Bonus per symbol for the best line of that symbol with count ≥ 3 (book substitutes; a line of
+5 books counts as explorer). Several different symbols in one spin → all their bonuses.
+| symbol | 3 of a kind | 4+ of a kind |
+|---|---|---|
+| explorer | EXTRA BALL | ETERNAL LIFE MULTIBALL (+2 balls) |
+| pharaoh | ball save +10 s | ball save +20 s |
+| anubis | light LOCK | lock a ball (locks+1, 3rd lock starts multiball as usual) |
+| scarab | spot 1 INDY target | spot 2 targets |
+| eye | bonus multiplier +1 | +2 |
+| ankh | ADD-A-BALL (1 extra ball into play now) | add 2 balls |
+| pyramid | +10 s on running mode, or start next mode if none | same + 25 000 |
+| feather | playfield ×2 for 20 s (stacks with free spins → max ×3) | 40 s |
+| emerald | 25 000 × bet points | 100 000 × bet |
+Free spins (3+ books) unchanged. Extra balls capped: at most 3 pending.
+`evaluate()` returns bonuses as:
+`{ball_save: float, light_lock: bool, lock_balls: int, spot_targets: int, add_multiplier: int,
+  start_multiball: bool, extra_balls: int, add_balls: int, mode_time: float, start_mode: bool,
+  playfield_x2_seconds: float, bonus_points: int, names: Array[String]}`
+(`names` = display names of the triggered bonuses, e.g. "EXTRA BALL", in trigger order).
+The old keys `spot_target: bool` is replaced by `spot_targets: int`.
+
+## C3 Rules additions (additive)
+```gdscript
+signal extra_balls_changed(n: int)
+signal request_add_ball(count: int)        # table spawns `count` balls at the idol scoop, each fires ball_added
+signal request_spot_target()               # (existing) emitted once per target to spot
+signal tilt_warning(level: int)            # 1 = "WARNING", 2 = "DANGER"
+signal tilted()
+var extra_balls: int = 0                   # 0..3
+var tilted: bool = false
+func nudge() -> void
+```
+- End of ball with extra_balls > 0: bonus is still scored, extra_balls -= 1, ball_number does NOT
+  advance, message "SHOOT AGAIN", request_serve_ball.
+- add_ball: request_add_ball(n); if not already multiball, multiball = true (so jackpot is lit and
+  a drain does not end the ball while ≥1 ball remains) — same end rule as multiball.
+- lock_balls: locks += n (3rd lock → multiball exactly like the scoop path).
+- playfield ×2 timer: `playfield_mult` = 1 + (free spins active ? 1 : 0) + (x2 timer > 0 ? 1 : 0),
+  emitted via playfield_mult_changed; timer runs in tick(). Table no longer sets mult directly for
+  free spins; it calls `set_free_spins_active(active: bool)` (new) and Rules computes the value.
+- mode_time: running mode timer += s; if no mode, start next mode when start_mode is true.
+- bonus_points added directly (not × playfield_mult).
+- NUDGE / TILT: `nudge()` adds 1.0 to a tilt meter that decays 0.5/s in tick(). After a nudge,
+  meter ≥ 2.0 → tilt_warning(1) "WARNING", ≥ 3.0 → tilt_warning(2) "DANGER", > 3.5 → TILT:
+  tilted = true, emit tilted(), message "TILT", flippers disabled, all scoring events ignored
+  until the ball ends; at end of a tilted ball NO bonus is scored, extra balls are kept, meter
+  resets, tilted = false. Ball save does not work while tilted. Nudges ignored unless PLAYING.
+
+## C4 Nudge input (table)
+InputMap: `nudge_left` (X, Left Ctrl) pushes balls to the RIGHT, `nudge_right` (C, Right Ctrl)
+pushes balls LEFT, `nudge_up` (T, Up) pushes balls up. Effect on every ball in play: impulse
+of 180 px/s horizontal (left/right) or −260 px/s vertical (up) plus ±40 random; the table/camera
+shakes 6 px for 0.15 s; sound `nudge` (add to gen_sfx.py: short thump) and `tilt` (buzzer).
+Each press calls `rules.nudge()` first; when tilted, nudges and flippers do nothing, the GI
+lights dim and "TILT" blinks. Touch: two-finger tap = nudge_up.
+HUD: extra-ball indicator ("EXTRA BALL x n" lamp), tilt warnings, playfield ×N indicator, slot
+bonus names shown as the slot's win banner (e.g. "EXTRA BALL!", "ADD-A-BALL!").
+
+## Acceptance (Part C)
+- C-A1 run_tests: every row of the C2 table (3 and 4+), multiple bonuses in one spin, cap of 3
+  extra balls, shoot-again flow, add-a-ball flow, lock_balls → multiball, ×2 timer and ×3 stack,
+  mode_time/start_mode, tilt warning levels, tilt ignores events and skips bonus, meter decay,
+  nudge ignored outside PLAYING. Target math test still in spec ranges.
+- C-A2 physics_smoke: each of the 4 new bumpers kicks a ball fired at it and fires `bumper`;
+  nudge_up raises a resting ball's upward speed; after a tilt, set_pressed on a flipper does not
+  move it; request_add_ball(1) adds one ball to group "balls".
+- All previous tests pass; no SCRIPT ERROR/ERROR headless; no GDScript warnings windowed.
