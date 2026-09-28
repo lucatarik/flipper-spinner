@@ -5,6 +5,10 @@ extends SceneTree
 const RulesScript = preload("res://scripts/rules.gd")
 const MainScene = preload("res://scenes/main.tscn")
 
+## Stuck-regression simulation speed-up: physics still ticks at 240 Hz but each
+## tick advances TIME_SCALE times more simulated time, keeping the run short.
+const TIME_SCALE := 12.0
+
 func _initialize() -> void:
 	_run()
 
@@ -28,6 +32,9 @@ func _run() -> void:
 	var r17: bool = await _scenario_nudge_up()
 	var r18: bool = await _scenario_tilt_flipper()
 	var r19: bool = await _scenario_request_add_ball()
+	var r20: bool = await _scenario_ramps()
+	var r21: bool = await _scenario_slot_active()
+	var r22: bool = await _scenario_stuck_regression()
 	print("SMOKE: plunger launch reaches field: %s" % ("PASS" if r1 else "FAIL"))
 	print("SMOKE: fired flipper launches ball (vy < -800): %s" % ("PASS" if r2 else "FAIL"))
 	print("SMOKE: idle-flipper ball drains: %s" % ("PASS" if r3 else "FAIL"))
@@ -47,7 +54,10 @@ func _run() -> void:
 	print("SMOKE: nudge_up raises a resting ball: %s" % ("PASS" if r17 else "FAIL"))
 	print("SMOKE: tilted flipper does not move: %s" % ("PASS" if r18 else "FAIL"))
 	print("SMOKE: request_add_ball(1) adds one ball: %s" % ("PASS" if r19 else "FAIL"))
-	var results := [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18, r19]
+	print("SMOKE: full/weak shots into both ramps: %s" % ("PASS" if r20 else "FAIL"))
+	print("SMOKE: slot only spins with a ball in play: %s" % ("PASS" if r21 else "FAIL"))
+	print("SMOKE: 150-seed stuck regression: %s" % ("PASS" if r22 else "FAIL"))
+	var results := [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18, r19, r20, r21, r22]
 	var failed := 0
 	for r in results:
 		if not r:
@@ -346,6 +356,8 @@ func _scenario_slot_cycles() -> bool:
 	var t = await _new_table()
 	t.rules.start_game()
 	await physics_frame
+	await physics_frame
+	t.set("_slot_ready", true)
 	var cycles: Array = [0]
 	t.slot.cycle_finished.connect(func(_r): cycles[0] += 1)
 	var elapsed := 0
@@ -447,6 +459,8 @@ func _scenario_slot_forced_win() -> bool:
 	var t = await _new_table()
 	t.rules.start_game()
 	await physics_frame
+	await physics_frame
+	t.set("_slot_ready", true)
 	var before: int = t.rules.score
 	t.slot.force_grid([
 		"eye", "explorer", "ankh",
@@ -463,4 +477,146 @@ func _scenario_slot_forced_win() -> bool:
 	t.queue_free()
 	await physics_frame
 	return reached
+
+## D-A2: a full-speed shot into each ramp mouth fires `ramp`/made and the ball
+## exits on the playfield layers; a weak shot falls back and returns to playfield
+## layers without making the ramp. While on a ramp the ball's mask is 16 only.
+func _scenario_ramps() -> bool:
+	var t = await _new_table()
+	t.rules.start_game()
+	await physics_frame
+	await physics_frame
+	var all_ok := true
+	for ramp in t.ramps:
+		for other in t.get_tree().get_nodes_in_group("balls"):
+			other.queue_free()
+		await physics_frame
+		var mouth: Vector2 = ramp.points[0]
+		var start: Vector2 = mouth - ramp.mouth_dir * 40.0
+		# --- full-speed shot: made + playfield layers on exit ---
+		var made: Array = [0]
+		var cb := func(_n): made[0] += 1
+		ramp.made.connect(cb)
+		var b = t.spawn_ball(start, ramp.mouth_dir * 1600.0)
+		t.rules.on_event("ball_added")
+		var mask_ok := true
+		var strong_ok := false
+		for i in 1200:
+			await physics_frame
+			if not is_instance_valid(b):
+				break
+			if b.get_meta("on_ramp", false) and b.collision_mask != 16:
+				mask_ok = false
+			if made[0] > 0 and b.collision_mask == 7:
+				strong_ok = true
+				break
+		if is_instance_valid(b):
+			b.queue_free()
+		ramp.made.disconnect(cb)
+		for other in t.get_tree().get_nodes_in_group("balls"):
+			other.queue_free()
+		await physics_frame
+		# --- weak shot: falls back, no make ---
+		var wmade: Array = [0]
+		var wcb := func(_n): wmade[0] += 1
+		ramp.made.connect(wcb)
+		var wb = t.spawn_ball(start, ramp.mouth_dir * 350.0)
+		t.rules.on_event("ball_added")
+		var weak_ok := false
+		for i in 600:
+			await physics_frame
+			if not is_instance_valid(wb):
+				break
+			if not wb.get_meta("on_ramp", false) and wb.collision_mask == 7 \
+					and wb.global_position.y > mouth.y:
+				weak_ok = true
+				break
+		if is_instance_valid(wb):
+			wb.queue_free()
+		ramp.made.disconnect(wcb)
+		all_ok = all_ok and mask_ok and strong_ok and weak_ok and wmade[0] == 0
+		await physics_frame
+	t.queue_free()
+	await physics_frame
+	return all_ok
+
+## D-A4: no spin in ATTRACT; none with the only ball waiting in the shooter lane;
+## spins after the plunge; stops after the drain (current spin still completes).
+func _scenario_slot_active() -> bool:
+	var t = await _new_table()
+	var cycles: Array = [0]
+	t.slot.cycle_finished.connect(func(_r): cycles[0] += 1)
+	for i in 300:
+		await physics_frame
+	var attract_cycles: int = cycles[0]
+	t.rules.start_game()
+	await physics_frame
+	await physics_frame
+	var lane_before: int = cycles[0]
+	for i in 600:
+		await physics_frame
+	var lane_cycles: int = cycles[0] - lane_before
+	t.set("_slot_ready", true)
+	var run_before: int = cycles[0]
+	for i in 2400:
+		await physics_frame
+	var run_cycles: int = cycles[0] - run_before
+	t.rules.balls_in_play = 0
+	for i in 1800:
+		await physics_frame
+	var stop_before: int = cycles[0]
+	for i in 960:
+		await physics_frame
+	var after_stop: int = cycles[0] - stop_before
+	t.queue_free()
+	await physics_frame
+	return attract_cycles == 0 and lane_cycles == 0 and run_cycles >= 2 and after_stop == 0
+
+## D-A1: randomized drop regression. 150 seeds drop a ball at random positions /
+## velocities onto the INDY bank with random target states; no ball may stay slower
+## than 30 px/s for 3 s outside the shooter lane and the scoop.
+func _scenario_stuck_regression() -> bool:
+	var t = await _new_table()
+	await physics_frame
+	var rng := RandomNumberGenerator.new()
+	var bad := 0
+	var per_frame: float = TIME_SCALE / 240.0
+	var frames := int(3.4 * 240.0 / TIME_SCALE)
+	Engine.time_scale = TIME_SCALE
+	for seed_i in 150:
+		rng.seed = 0x9E3779B1 + seed_i * 2654435761
+		for tg in t.target_bank.targets:
+			if rng.randf() < 0.5:
+				tg.drop()
+			else:
+				tg.raise()
+		for other in t.get_tree().get_nodes_in_group("balls"):
+			other.queue_free()
+		await physics_frame
+		var pos := Vector2(rng.randf_range(430.0, 630.0), rng.randf_range(230.0, 900.0))
+		var vel := Vector2(cos(rng.randf_range(0.0, TAU)), sin(rng.randf_range(0.0, TAU))) \
+			* rng.randf_range(0.0, 500.0)
+		var b = t.spawn_ball(pos, vel)
+		var slow := 0.0
+		for i in frames:
+			await physics_frame
+			if not is_instance_valid(b):
+				break
+			if t.in_lane_for_ball(b) or t.scoop.holding or b.get_meta("on_ramp", false):
+				slow = 0.0
+				continue
+			if b.linear_velocity.length() < 30.0:
+				slow += per_frame
+				if slow > 3.0:
+					bad += 1
+					break
+			else:
+				slow = 0.0
+		if is_instance_valid(b):
+			b.queue_free()
+		await physics_frame
+	Engine.time_scale = 1.0
+	t.queue_free()
+	await physics_frame
+	return bad == 0
 

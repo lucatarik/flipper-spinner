@@ -2,6 +2,8 @@ extends CanvasLayer
 ## HUD bound to Rules signals: score, ball, multiplier, locks, current mode with
 ## a timed progress bar, transient messages, attract and game-over screens.
 
+signal music_toggle_pressed
+
 var rules = null
 
 var _score_label: Label
@@ -20,6 +22,8 @@ var _attract_high: Label
 var _gameover: Control
 var _gameover_score: Label
 var _new_high: Label
+var _music_btn: Button
+var _music_shapes: Array = []
 
 var _message_timer := 0.0
 var _message_total := 0.0
@@ -49,6 +53,52 @@ func _ready() -> void:
 
 	_build_attract()
 	_build_gameover()
+	_build_music_button()
+
+## D4: clickable/tappable speaker icon (top-right, under the ball counter).
+func _build_music_button() -> void:
+	_music_btn = Button.new()
+	_music_btn.flat = true
+	_music_btn.position = Vector2(622, 12)
+	_music_btn.size = Vector2(78, 50)
+	_music_btn.tooltip_text = "Music (N)"
+	add_child(_music_btn)
+
+	var body := Polygon2D.new()
+	body.polygon = PackedVector2Array([
+		Vector2(10, 20), Vector2(22, 20), Vector2(22, 30), Vector2(10, 30)])
+	_music_btn.add_child(body)
+	_music_shapes.append(body)
+
+	var cone := Polygon2D.new()
+	cone.polygon = PackedVector2Array([
+		Vector2(22, 20), Vector2(36, 8), Vector2(36, 42), Vector2(22, 30)])
+	_music_btn.add_child(cone)
+	_music_shapes.append(cone)
+
+	for radius in [8.0, 14.0]:
+		var wave := Line2D.new()
+		var pts := PackedVector2Array()
+		for i in 7:
+			var a := deg_to_rad(-55.0 + 110.0 * float(i) / 6.0)
+			pts.append(Vector2(36, 25) + Vector2(cos(a), sin(a)) * radius)
+		wave.points = pts
+		wave.width = 2.5
+		_music_btn.add_child(wave)
+		_music_shapes.append(wave)
+
+	_music_btn.pressed.connect(func(): music_toggle_pressed.emit())
+	set_music_enabled(true)
+
+func set_music_enabled(on: bool) -> void:
+	var col := Color("#ffd24a") if on else Color("#6a6355")
+	for s in _music_shapes:
+		if s is Line2D:
+			s.default_color = col
+		else:
+			s.color = col
+	if _music_btn:
+		_music_btn.modulate = Color(1, 1, 1, 1.0 if on else 0.6)
 
 func _make_label(pos: Vector2, size: int, color: Color, align: int) -> Label:
 	var l := Label.new()

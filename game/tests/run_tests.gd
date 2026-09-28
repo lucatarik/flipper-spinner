@@ -2,6 +2,7 @@ extends SceneTree
 
 const RulesScript = preload("res://scripts/rules.gd")
 const SlotMachineScript = preload("res://scripts/slot_machine.gd")
+const SettingsScript = preload("res://scripts/settings.gd")
 
 var passed := 0
 var failed := 0
@@ -39,6 +40,10 @@ func _initialize() -> void:
 	run("rules: mode_time / start_mode", test_rules_mode_time)
 	run("rules: tilt warning / ignore / no bonus", test_rules_tilt)
 	run("rules: nudge ignored outside PLAYING", test_rules_nudge_attract)
+	run("rules: ramp scoring + combo window", test_rules_ramp)
+	run("rules: 4th ramp extra ball + cap", test_rules_ramp_extra_ball)
+	run("rules: mode 1 qualifies on ramp", test_rules_mode_ramp)
+	run("settings: music toggle persists", test_settings_music)
 	run("slot 20000-spin target math", test_slot_target_math)
 	print("----------------------------------------")
 	print("SUMMARY: %d passed, %d failed" % [passed, failed])
@@ -765,6 +770,67 @@ func test_rules_nudge_attract() -> void:
 	r.nudge()
 	expect(r._tilt_meter == 0.0, "nudge ignored in ATTRACT")
 	expect(not r.tilted, "no tilt in ATTRACT")
+
+func test_rules_ramp() -> void:
+	var r = _new_started()
+	var counts: Array = []
+	r.ramp_count_changed.connect(func(n): counts.append(n))
+	var base: int = r.score
+	r.on_event("ramp", {"name": "TEMPLE RAMP"})
+	expect(r.score - base == 10000, "ramp awards 10000")
+	expect(r.ramp_count == 1, "ramp_count 1")
+	expect(r.bonus == 2500, "ramp bonus 2500")
+	expect(counts == [1], "ramp_count_changed emitted")
+	# a second ramp inside the 3 s window pays the combo
+	base = r.score
+	r.tick(2.0)
+	r.on_event("ramp", {"name": "IDOL RAMP"})
+	expect(r.ramp_count == 2, "second ramp counted")
+	expect(r.score - base == 10000 + 25000, "ramp + combo 25000")
+	# outside the window no combo
+	base = r.score
+	r.tick(3.5)
+	r.on_event("orbit", {"side": "left"})
+	expect(r.score - base == 5000, "orbit after window no combo")
+	# orbit then ramp inside the window combos
+	base = r.score
+	r.on_event("ramp", {"name": "TEMPLE RAMP"})
+	expect(r.score - base == 10000 + 25000, "orbit -> ramp combo")
+
+func test_rules_ramp_extra_ball() -> void:
+	var r = _new_started()
+	var changed: Array = []
+	r.extra_balls_changed.connect(func(n): changed.append(n))
+	for i in 4:
+		r.on_event("ramp", {"name": "TEMPLE RAMP"})
+	expect(r.extra_balls == 1, "4th ramp -> extra ball")
+	expect(not changed.is_empty() and changed[-1] == 1, "extra_balls_changed")
+	for i in 12:
+		r.on_event("ramp", {"name": "TEMPLE RAMP"})
+	expect(r.ramp_count == 16, "every ramp counted")
+	expect(r.extra_balls == 3, "extra balls capped at 3")
+
+func test_rules_mode_ramp() -> void:
+	var r = _new_started()
+	r.on_event("scoop")
+	expect(r._mode_index == 0, "mode 0 started")
+	r.tick(31.0)
+	r.on_event("scoop")
+	expect(r._mode_index == 1, "mode 1 started")
+	for i in 4:
+		r.on_event("ramp", {"name": "TEMPLE RAMP"})
+	expect(not r._mode_active, "MINE CART CHASE completes on ramps")
+
+func test_settings_music() -> void:
+	var path := "user://test_settings.cfg"
+	if FileAccess.file_exists(path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	expect(SettingsScript.get_music_enabled(path), "missing file -> music on")
+	SettingsScript.set_music_enabled(false, path)
+	expect(not SettingsScript.get_music_enabled(path), "persisted off")
+	SettingsScript.set_music_enabled(true, path)
+	expect(SettingsScript.get_music_enabled(path), "persisted on")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 
 func test_slot_target_math() -> void:
 	var rng := RandomNumberGenerator.new()

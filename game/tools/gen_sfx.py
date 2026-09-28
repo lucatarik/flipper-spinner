@@ -296,6 +296,20 @@ def main():
         noise(0.12, amp=0.2, decay=25.0, lp=0.3),
     )
 
+    # --- D2 ramps / combo (synth'd at the end so earlier RNG draws hold) ---
+    sounds["ramp_enter"] = mix(
+        sine((220, 900), 0.32, amp=0.30, decay=4.0),
+        noise(0.32, amp=0.20, decay=5.0, lp=0.12),
+    )
+    sounds["ramp_made"] = concat(
+        arpeggio([12, 19, 24], 0.09, amp=0.32, decay=9.0),
+        arpeggio([28, 31], 0.20, amp=0.38, decay=5.0),
+    )
+    sounds["combo"] = concat(
+        arpeggio([24, 28, 31, 36], 0.07, amp=0.30, decay=11.0),
+        sine(hz_note(36), 0.22, amp=0.36, decay=6.0),
+    )
+
     # --- fallback theme (runtime music uses the CC0 OGG tracks) -----------
     theme = []
     bass = [0, 0, -5, -5, 3, 3, 2, 2]

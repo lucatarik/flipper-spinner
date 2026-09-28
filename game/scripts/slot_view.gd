@@ -62,6 +62,7 @@ var _count_target := 0
 var _count_tick := 0.0
 var _big_win := false
 
+var _active := false
 var _free_spins_active := false
 var _marquee_time := 0.0
 var _frame_glow := 0.0
@@ -80,6 +81,7 @@ var _free_label: Label
 var _big_label: Label
 var _bonus_label: Label
 var _reveal_label: Label
+var _idle_label: Label
 var _coins: CPUParticles2D
 var _book_node: Node2D
 var _book_sprite: Sprite2D
@@ -112,12 +114,20 @@ func setup(table: Node, sfx: Node) -> void:
 func force_grid(grid: Array) -> void:
 	slot.force_grid(grid)
 
-## While on, only demo-spin (no payout) renders at a steady rate.
-func set_demo(on: bool) -> void:
-	if on:
-		_state = STATE_IDLE
-		_timer = IDLE_SECONDS
-		_clear_win()
+## D3: spin only while a ball is in play. When inactive a running spin finishes
+## (and still evaluates), then the reels idle with a "PLUNGE TO SPIN" prompt.
+func set_active(active: bool) -> void:
+	if active == _active:
+		return
+	_active = active
+	if _idle_label:
+		_idle_label.visible = not active
+	if not active:
+		if _state == STATE_IDLE:
+			_timer = IDLE_SECONDS
+		return
+	if _state == STATE_IDLE and _timer <= 0.0:
+		_timer = 0.05
 
 func reset_bet() -> void:
 	slot.reset_bet()
@@ -151,7 +161,7 @@ func _process(delta: float) -> void:
 	match _state:
 		STATE_IDLE:
 			_timer -= delta
-			if _timer <= 0.0:
+			if _timer <= 0.0 and _active:
 				_begin_spin()
 		STATE_SPINNING:
 			_update_spinning(delta)
@@ -437,6 +447,9 @@ func _update_marquee() -> void:
 	var rainbow := _free_spins_active
 	for i in _marquee_lamps.size():
 		var lamp: Polygon2D = _marquee_lamps[i]
+		if not _active and not rainbow:
+			lamp.color = LAPIS_DARK.lerp(GOLD, 0.12)
+			continue
 		var phase := _marquee_time * 6.0 - float(i) * 0.7
 		var on := 0.5 + 0.5 * sin(phase)
 		if rainbow:
@@ -619,6 +632,12 @@ func _build_labels() -> void:
 	_free_label.size.x = WINDOW.size.x
 	_free_label.visible = false
 	add_child(_free_label)
+
+	_idle_label = _make_label("PLUNGE TO SPIN", 26, Color("#c9b78a"))
+	_idle_label.position = Vector2(WINDOW.position.x, WINDOW.position.y - 54.0)
+	_idle_label.size.x = WINDOW.size.x
+	_idle_label.visible = true
+	add_child(_idle_label)
 
 	_bonus_label = _make_label("", 30, Color("#ffe066"))
 	_bonus_label.position = Vector2(WINDOW.position.x - 40.0, WINDOW.position.y + WINDOW.size.y + 78.0)

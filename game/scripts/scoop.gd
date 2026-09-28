@@ -93,7 +93,16 @@ func _on_body(body: Node) -> void:
 		return
 	_capture(body)
 
-func _capture(body: RigidBody2D) -> void:
+## D1 stuck-ball rescue: pull a wedged ball into the scoop hold + kick without
+## emitting `captured`, so no scoop score/lock/mode is triggered.
+func rescue(body: RigidBody2D) -> void:
+	if holding or _cooldown > 0.0 or body == null or not is_instance_valid(body):
+		return
+	if not body.is_in_group("balls"):
+		return
+	_capture(body, true)
+
+func _capture(body: RigidBody2D, silent := false) -> void:
 	holding = true
 	_timer = 0.0
 	_ball = body
@@ -102,7 +111,8 @@ func _capture(body: RigidBody2D) -> void:
 	body.linear_velocity = Vector2.ZERO
 	body.global_position = global_position + CAPTURE_OFFSET
 	_glow.energy = 1.6
-	captured.emit()
+	if not silent:
+		captured.emit()
 
 func _physics_process(delta: float) -> void:
 	if _cooldown > 0.0:

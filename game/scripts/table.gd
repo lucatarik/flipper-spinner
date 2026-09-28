@@ -17,6 +17,7 @@ const LaneSensorScript = preload("res://scripts/lane_sensor.gd")
 const OrbitScript = preload("res://scripts/orbit.gd")
 const LightsScript = preload("res://scripts/lights.gd")
 const SlotScene = preload("res://scenes/slot.tscn")
+const RampScript = preload("res://scripts/ramp.gd")
 
 const TEX_PLAYFIELD = preload("res://assets/playfield.jpg")
 const TEX_BUMPER = preload("res://assets/sprites/bumper.png")
@@ -37,7 +38,12 @@ const DRAIN_TOP := 1215.0
 const LANE_FLOOR_Y := 1175.0
 const SERVE_POS := Vector2(674.0, 1135.0)
 
-const BUMPER_POSITIONS := [Vector2(240, 430), Vector2(420, 430), Vector2(330, 525)]
+const STUCK_SPEED := 30.0
+const STUCK_SECONDS := 2.0
+const STUCK_MAX_NUDGES := 3
+const STUCK_NUDGE_SPEED := 350.0
+
+const BUMPER_POSITIONS := [Vector2(240, 430), Vector2(420, 430), Vector2(330, 495)]
 const POP_BUMPER_POSITIONS := [Vector2(150, 330), Vector2(510, 330)]
 const SIDE_BUMPERS := [
 	{"pos": Vector2(20, 860), "normal": Vector2.RIGHT},
@@ -51,6 +57,28 @@ const SLING_LEFT_POLY := [Vector2(75, 880), Vector2(75, 990), Vector2(165, 1037)
 const SLING_LEFT_KICK := Vector2(0.868, -0.497)
 const SLING_RIGHT_POLY := [Vector2(579, 880), Vector2(579, 990), Vector2(489, 1037)]
 const SLING_RIGHT_KICK := Vector2(-0.868, -0.497)
+
+## D2 ramp centrelines (logical px). Arcs are approximated by short chamfer points.
+const R1_NAME := "TEMPLE RAMP"
+const R1_POINTS := [
+	Vector2(528, 812), Vector2(528, 700), Vector2(528, 610),
+	Vector2(527, 595), Vector2(524, 581), Vector2(518, 569), Vector2(509, 560),
+	Vector2(500, 556), Vector2(490, 555), Vector2(200, 555),
+	Vector2(150, 558), Vector2(128, 566), Vector2(122, 570), Vector2(116, 577),
+	Vector2(112, 590), Vector2(112, 700), Vector2(112, 755),
+	Vector2(108, 790), Vector2(101, 825), Vector2(92, 858), Vector2(81, 888),
+	Vector2(69, 910), Vector2(55, 930),
+]
+const R1_COMMIT := Vector2(528, 640)
+const R1_EXIT_DIR := Vector2(0, 1)
+const R2_NAME := "IDOL RAMP"
+const R2_POINTS := [
+	Vector2(590, 452), Vector2(590, 340), Vector2(588, 300), Vector2(578, 250),
+	Vector2(560, 200), Vector2(530, 165), Vector2(500, 143), Vector2(460, 128),
+	Vector2(425, 122),
+]
+const R2_COMMIT := Vector2(590, 380)
+const R2_EXIT_DIR := Vector2(-1, 0.3)
 
 const SCOOP_POS := Vector2(360, 300)
 const TARGET_X := 610.0
@@ -76,6 +104,7 @@ var target_bank
 var orbit
 var lane_sensors: Array = []
 var slot
+var ramps: Array = []
 var pop_bumpers: Array = []
 var side_bumpers: Array = []
 var new_bumpers: Array = []
@@ -96,6 +125,8 @@ var _add_timer := 0.0
 var _ball_save_time := 0.0
 var _music_track := ""
 var _sfx: Node = null
+var _slot_ready := false
+var _slot_active := false
 
 func _ready() -> void:
 	_sfx = get_node_or_null("/root/Sfx")
@@ -114,9 +145,15 @@ func _ready() -> void:
 	_build_drain()
 	_build_features()
 	_build_slot()
+	_build_ramps()
 	_build_lights()
 	if hud and hud.has_method("setup"):
 		hud.setup(rules)
+	if hud:
+		if hud.has_signal("music_toggle_pressed"):
+			hud.music_toggle_pressed.connect(_toggle_music)
+		if hud.has_method("set_music_enabled") and _sfx:
+			hud.set_music_enabled(_sfx.is_music_enabled())
 
 func _sfx_play(sfx_name: String, pitch := 1.0, db := 0.0) -> void:
 	if _sfx:
@@ -156,6 +193,9 @@ func _physics_process(delta: float) -> void:
 		_sfx_play("game_start")
 		rules.start_game()
 
+	if Input.is_action_just_pressed("music_toggle"):
+		_toggle_music()
+
 	if Input.is_action_just_pressed("nudge_left"):
 		_do_nudge(Vector2(1.0, 0.0))
 	if Input.is_action_just_pressed("nudge_right"):
@@ -192,6 +232,7 @@ func _physics_process(delta: float) -> void:
 	_update_multiball(delta)
 	_update_add_ball(delta)
 	_update_ball_save(delta)
+	_update_slot()
 	_update_music()
 	_check_balls(delta)
 
@@ -247,6 +288,7 @@ func _on_request_serve_ball() -> void:
 		right_flipper.set_disabled(false)
 	if lights:
 		lights.set_tilt(false)
+	_slot_ready = false
 	spawn_ball(SERVE_POS, Vector2.ZERO)
 	rules.on_event("ball_added")
 
@@ -314,6 +356,8 @@ func _on_rules_message(text: String, _seconds: float) -> void:
 			lights.flash()
 			lights.shake()
 			lights.set_lock(false)
+	elif text.begins_with("COMBO"):
+		_sfx_play("combo")
 	elif text.ends_with(" START"):
 		_sfx_play("mode_start")
 	elif text.ends_with(" COMPLETE"):
@@ -343,10 +387,32 @@ func _update_music() -> void:
 		if rules.multiball or (slot and slot.free_spins_active()):
 			track = "desert_mystic3"
 		else:
-			track = "desert_mystic2"
+			track = "camel_groove"
 	if track != _music_track:
 		_music_track = track
 		_sfx_music(track)
+
+## D3: the slot spins only while a served ball is actually in play, never while the
+## only ball waits in the shooter lane and never while tilted. In ATTRACT/GAME_OVER
+## with no ball it idles still (no demo spin).
+func _update_slot() -> void:
+	if rules.balls_in_play <= 0 or rules.state != RulesScript.State.PLAYING:
+		_slot_ready = false
+	var active: bool = rules.state == RulesScript.State.PLAYING \
+		and rules.balls_in_play > 0 and _slot_ready and not rules.tilted
+	if active != _slot_active:
+		_slot_active = active
+		if slot:
+			slot.set_active(active)
+
+func _toggle_music() -> void:
+	if _sfx == null:
+		return
+	var on: bool = not _sfx.is_music_enabled()
+	_sfx.set_music_enabled(on)
+	if hud and hud.has_method("set_music_enabled"):
+		hud.set_music_enabled(on)
+	rules.message.emit("MUSIC ON" if on else "MUSIC OFF", 1.5)
 
 func _on_bumper_hit() -> void:
 	switch_hit.emit("bumper")
@@ -396,18 +462,45 @@ func _check_balls(delta: float) -> void:
 		elif ball.get_meta("was_in_lane", false) and not ball.get_meta("left_lane", false):
 			ball.set_meta("left_lane", true)
 			rules.on_event("plunger_exit")
+			_slot_ready = true
 			if not rules.multiball:
 				_ball_save_time = RulesScript.BALL_SAVE_SECONDS
-		if ball.linear_velocity.length() < 5.0 and not in_lane and not scoop.holding:
-			_stuck[id] = float(_stuck.get(id, 0.0)) + delta
-			if _stuck[id] > 5.0:
-				_stuck[id] = 0.0
-				var nudge := Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0))
-				if nudge.length() < 0.01:
-					nudge = Vector2(0.0, -1.0)
-				ball.linear_velocity += nudge.normalized() * 400.0
-		else:
-			_stuck[id] = 0.0
+		_ball_is_stuck(ball, delta, in_lane)
+
+## D1 stuck-ball safety: a nearly stationary ball outside the scoop, shooter lane
+## and ramps gets a 350 px/s up-and-away nudge every 2 s; after 3 failed nudges the
+## ball is rescued into the idol scoop (hold + kick, no score). Returns true when
+## the ball was nudged/rescued so the caller can skip further handling.
+func _ball_is_stuck(ball: Node, delta: float, in_lane: bool) -> bool:
+	if in_lane or scoop.holding or ball.get_meta("on_ramp", false):
+		_stuck.erase(ball.get_instance_id())
+		return false
+	if ball.linear_velocity.length() >= STUCK_SPEED:
+		_stuck.erase(ball.get_instance_id())
+		return false
+	var id := ball.get_instance_id()
+	var rec: Dictionary = _stuck.get(id, {"t": 0.0, "n": 0})
+	rec["t"] = float(rec["t"]) + delta
+	if float(rec["t"]) < STUCK_SECONDS:
+		_stuck[id] = rec
+		return false
+	rec["t"] = 0.0
+	var p: Vector2 = ball.global_position
+	if int(rec["n"]) < STUCK_MAX_NUDGES:
+		rec["n"] = int(rec["n"]) + 1
+		_stuck[id] = rec
+		var dir := Vector2(0.6, -1.0) if p.x < 327.0 else Vector2(-0.6, -1.0)
+		ball.linear_velocity += dir.normalized() * STUCK_NUDGE_SPEED
+		if lights:
+			lights.shake(4.0, 0.12)
+		return true
+	_stuck.erase(id)
+	_rescue_ball(ball)
+	return true
+
+func _rescue_ball(ball: Node) -> void:
+	if scoop and not scoop.holding:
+		scoop.rescue(ball)
 
 ## Freshly spawned balls start at the idol scoop: keep the shooter-lane rules
 ## (plunger_exit / stuck detection) off them until they physically cross into the
@@ -627,7 +720,30 @@ func _build_slot() -> void:
 	slot.cycle_finished.connect(_on_slot_cycle_finished)
 	slot.free_spins_changed.connect(_on_slot_free_spins)
 	switch_hit.connect(_on_switch_hit)
-	slot.set_demo(true)
+	slot.set_active(false)
+
+func _build_ramps() -> void:
+	for cfg in [
+		{"name": R1_NAME, "points": R1_POINTS, "commit": R1_COMMIT, "exit": R1_EXIT_DIR},
+		{"name": R2_NAME, "points": R2_POINTS, "commit": R2_COMMIT, "exit": R2_EXIT_DIR},
+	]:
+		var ramp = RampScript.new()
+		ramp.name = String(cfg["name"]).replace(" ", "")
+		add_child(ramp)
+		ramp.configure(String(cfg["name"]), PackedVector2Array(cfg["points"]),
+			Vector2(0, -1), cfg["commit"], cfg["exit"])
+		ramp.entered.connect(_on_ramp_entered)
+		ramp.made.connect(_on_ramp_made)
+		ramps.append(ramp)
+
+func _on_ramp_entered(_ramp_name: String) -> void:
+	_sfx_play("ramp_enter")
+
+func _on_ramp_made(ramp_name: String) -> void:
+	_sfx_play("ramp_made")
+	if slot:
+		slot.add_energy(2)
+	rules.on_event("ramp", {"name": ramp_name})
 
 func _on_switch_hit(_kind: String) -> void:
 	if slot:
@@ -675,8 +791,9 @@ func _on_tilted() -> void:
 	_update_music()
 
 func _on_state_changed(state: int) -> void:
-	if slot:
-		slot.set_demo(state != RulesScript.State.PLAYING)
+	if state != RulesScript.State.PLAYING:
+		_slot_ready = false
+	_update_slot()
 
 func _on_slot_cycle_finished(result: Dictionary) -> void:
 	if rules.state != RulesScript.State.PLAYING:
