@@ -411,8 +411,8 @@ func _build_walls() -> void:
 	# shooter-lane floor
 	_add_band(Vector2(DIVIDER_INNER, LANE_FLOOR_Y), Vector2(OUTER_RIGHT_INNER, LANE_FLOOR_Y), 16.0)
 	# inlane guides
-	_add_band(Vector2(20, 1000), Vector2(200, 1108), 16.0)
-	_add_band(Vector2(634, 1000), Vector2(454, 1108), 16.0)
+	_add_band(Vector2(20, 1000), Vector2(210, 1100), 16.0)
+	_add_band(Vector2(634, 1000), Vector2(444, 1100), 16.0)
 	# top rollover lane separators
 	for x in LANE_POST_XS:
 		_add_band(Vector2(x, LANE_TOP), Vector2(x, LANE_BOTTOM), 10.0)

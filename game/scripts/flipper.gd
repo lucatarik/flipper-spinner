@@ -17,6 +17,9 @@ const DARK := Color("#3a2c0c")
 @export var side := "left"
 
 var _pressed := false
+## Unwrapped bat angle: `rotation` is read back wrapped to (-PI, PI], which made
+## the right bat (rest 152 deg, active 208 deg) swing the long way round.
+var _angle := 0.0
 var _kicked := {}
 var _bat: Polygon2D
 var _outline: Line2D
@@ -27,7 +30,8 @@ func _ready() -> void:
 	collision_mask = 0
 	_build_shape()
 	_build_visual()
-	rotation = _rest_angle()
+	_angle = _rest_angle()
+	rotation = _angle
 
 func _build_shape() -> void:
 	var poly := PackedVector2Array([
@@ -39,6 +43,15 @@ func _build_shape() -> void:
 	var cp := CollisionPolygon2D.new()
 	cp.polygon = poly
 	add_child(cp)
+	# Rounded pivot and tip: square corners formed a notch with the inlane guide end
+	# where a ball could come to rest on top of the pivot.
+	for cap in [[Vector2.ZERO, PIVOT_RADIUS], [Vector2(LENGTH, 0.0), TIP_RADIUS]]:
+		var cs := CollisionShape2D.new()
+		var circle := CircleShape2D.new()
+		circle.radius = cap[1]
+		cs.shape = circle
+		cs.position = cap[0]
+		add_child(cs)
 
 	_hit_area = Area2D.new()
 	_hit_area.name = "HitArea"
@@ -104,9 +117,10 @@ func has_ball(body: Node) -> bool:
 
 func _physics_process(delta: float) -> void:
 	var target := _active_angle() if _pressed else _rest_angle()
-	var prev := rotation
-	rotation = move_toward(rotation, target, SWING_SPEED * delta)
-	if _pressed and not is_equal_approx(rotation, target) and not is_equal_approx(rotation, prev):
+	var prev := _angle
+	_angle = move_toward(_angle, target, SWING_SPEED * delta)
+	rotation = _angle
+	if _pressed and not is_equal_approx(_angle, target) and not is_equal_approx(_angle, prev):
 		_apply_hits()
 
 func _apply_hits() -> void:
