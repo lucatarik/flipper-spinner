@@ -4,7 +4,7 @@ extends Node2D
 ## a rod + tip with a coil spring that visibly compresses while charging.
 
 const CHARGE_TIME := 1.0
-const MAX_SPEED := 1700.0
+const MAX_SPEED := 2805.0       # +65% power (user request), was 1700.0
 const MIN_RATIO := 0.4
 
 const BASE_Y := 78.0

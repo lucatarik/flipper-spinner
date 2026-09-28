@@ -16,9 +16,9 @@ material from either source.
 ## What's actually in the box
 
 **Pinball side**
-- Two main flippers, plus **three extra "wing" flippers** higher up the table (fired
-  automatically with the main flipper on their side) to help the ball reach the
-  upper playfield instead of draining straight back down.
+- Two main flippers, plus **four extra "wing" flippers** scattered higher up the
+  table (fired automatically with the main flipper on their side) to help the
+  ball reach the upper playfield instead of draining straight back down.
 - A bank of **"bonus bumpers"**: light all three and you get a bonus multiplier plus
   flat points — then the bank resets so you can do it again.
 - **Moving mini bumpers** that patrol back and forth over the middle of the table,

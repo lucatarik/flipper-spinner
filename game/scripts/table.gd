@@ -48,11 +48,12 @@ const STUCK_NUDGE_SPEED := 350.0
 
 const BUMPER_POSITIONS := [Vector2(240, 430), Vector2(420, 430), Vector2(330, 495)]
 const POP_BUMPER_POSITIONS := [Vector2(150, 330), Vector2(510, 330)]
-## Left one raised 15px (860->845): balls sliding down the left wall were
-## catching on it (user report).
+## Left one raised 15px (860->845), right one raised 25px (820->795): balls
+## were getting wedged against them (user report; right one was worse — "the
+## ball doesn't pass at all" — hence the bigger move).
 const SIDE_BUMPERS := [
 	{"pos": Vector2(20, 845), "normal": Vector2.RIGHT},
-	{"pos": Vector2(634, 820), "normal": Vector2.LEFT},
+	{"pos": Vector2(634, 795), "normal": Vector2.LEFT},
 ]
 const FLIPPER_LEFT_PIVOT := Vector2(214, 1110)
 const FLIPPER_RIGHT_PIVOT := Vector2(440, 1110)
@@ -75,6 +76,14 @@ const WING_RIGHT_PIVOT := Vector2(535, 870)
 ## flip_left), clear of the pop bumper at (150,330), the scoop and the top lanes.
 const WING_TOP_LEFT_SCALE := 0.55
 const WING_TOP_LEFT_PIVOT := Vector2(170, 250)
+
+## A right-side wing flipper hugging the right wall (the shooter-lane divider,
+## inner face x=634) at about slot height, in the pocket between the INDY
+## target bank above (ends y=674) and ramp R1's rail column (x~508-548 in this
+## band) to its left — small scale so it fits that pocket without clipping
+## either. Also fires with flip_right.
+const WING_RIGHT_WALL_SCALE := 0.55
+const WING_RIGHT_WALL_PIVOT := Vector2(620, 745)
 
 ## Small bumpers that patrol back and forth over the (non-colliding) slot pit.
 const MINI_BUMPERS := [
@@ -99,9 +108,8 @@ const SOFT_BONUS_SPOTS := [
 const SOFT_BONUS_MIN_DELAY := 7.0
 const SOFT_BONUS_MAX_DELAY := 14.0
 
-## TAB cheat: zoomed-in follow camera (+60%; user corrected: 0.6 zoomed OUT
-## instead of in), V cheat: half gravity.
-const ZOOM_FOLLOW := Vector2(1.6, 1.6)
+## TAB cheat: zoomed-in follow camera (150%, user request), V cheat: half gravity.
+const ZOOM_FOLLOW := Vector2(1.5, 1.5)
 const ZOOM_NORMAL := Vector2(1.0, 1.0)
 const CAMERA_FOLLOW_LERP := 6.0
 const GRAVITY_HALF_FACTOR := 0.5
@@ -154,6 +162,7 @@ var right_flipper
 var wing_left_flipper
 var wing_right_flipper
 var wing_top_left_flipper
+var wing_right_wall_flipper
 var plunger
 var scoop
 var target_bank
@@ -303,6 +312,8 @@ func _physics_process(delta: float) -> void:
 		right_flipper.set_pressed(right)
 		if wing_right_flipper:
 			wing_right_flipper.set_pressed(right)
+		if wing_right_wall_flipper:
+			wing_right_wall_flipper.set_pressed(right)
 		if right:
 			_sfx_play("flipper")
 			rules.flip_lanes(1)
@@ -348,6 +359,8 @@ func _input(event: InputEvent) -> void:
 				right_flipper.set_pressed(true)
 				if wing_right_flipper:
 					wing_right_flipper.set_pressed(true)
+				if wing_right_wall_flipper:
+					wing_right_wall_flipper.set_pressed(true)
 		else:
 			plunger.set_charging(false)
 			left_flipper.set_pressed(false)
@@ -358,6 +371,8 @@ func _input(event: InputEvent) -> void:
 				wing_right_flipper.set_pressed(false)
 			if wing_top_left_flipper:
 				wing_top_left_flipper.set_pressed(false)
+			if wing_right_wall_flipper:
+				wing_right_wall_flipper.set_pressed(false)
 			_touch_count = 0
 
 ## C4: table nudge. Rules decides whether the meter tolerates it; the table then
@@ -452,6 +467,8 @@ func _on_request_serve_ball() -> void:
 		wing_right_flipper.set_disabled(false)
 	if wing_top_left_flipper:
 		wing_top_left_flipper.set_disabled(false)
+	if wing_right_wall_flipper:
+		wing_right_wall_flipper.set_disabled(false)
 	if lights:
 		lights.set_tilt(false)
 	_slot_ready = false
@@ -916,6 +933,12 @@ func _build_flippers() -> void:
 	wing_top_left_flipper.position = WING_TOP_LEFT_PIVOT
 	add_child(wing_top_left_flipper)
 
+	wing_right_wall_flipper = FlipperScript.new()
+	wing_right_wall_flipper.side = "right"
+	wing_right_wall_flipper.size_scale = WING_RIGHT_WALL_SCALE
+	wing_right_wall_flipper.position = WING_RIGHT_WALL_PIVOT
+	add_child(wing_right_wall_flipper)
+
 func _build_plunger() -> void:
 	plunger = PlungerScript.new()
 	plunger.position = PLUNGER_POS
@@ -1043,6 +1066,8 @@ func _on_tilted() -> void:
 		wing_right_flipper.set_pressed(false)
 	if wing_top_left_flipper:
 		wing_top_left_flipper.set_pressed(false)
+	if wing_right_wall_flipper:
+		wing_right_wall_flipper.set_pressed(false)
 	if left_flipper:
 		left_flipper.set_disabled(true)
 	if right_flipper:
@@ -1053,6 +1078,8 @@ func _on_tilted() -> void:
 		wing_right_flipper.set_disabled(true)
 	if wing_top_left_flipper:
 		wing_top_left_flipper.set_disabled(true)
+	if wing_right_wall_flipper:
+		wing_right_wall_flipper.set_disabled(true)
 	_left_down = false
 	_right_down = false
 	if lights:

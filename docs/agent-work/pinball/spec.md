@@ -635,3 +635,44 @@ the playfield art instead of the plain circular glow.
   of shrinking it; flippers noticeably snappier again; round pop bumpers kick harder; soft
   bonus pickups show a recognizable emerald/scarab/ankh icon with a visible glow, not a
   plain circle.
+
+---
+# Part I — user feedback round 8 (plunger power, zoom value, 3rd wing on the right,
+# right side bumper still catching the ball)
+
+Also implemented by hand (no Godot/opencode in this sandbox), not run/verified headless.
+
+## I1 Plunger power +65%
+`plunger.gd`: `MAX_SPEED` 1700 -> 2805 (+65%). `MIN_RATIO` (min launch = 40% charge)
+unchanged, so the minimum launch speed scales with it (680 -> 1122). Stays under
+`ball.gd`'s `MAX_SPEED = 3200` clamp even at full charge.
+
+## I2 Zoom value: 1.6 -> 1.5 ("make it 150%")
+`table.ZOOM_FOLLOW` = `Vector2(1.5,1.5)`. (Direction was fixed in Part H; this is just the
+exact requested magnitude.)
+
+## I3 Right side bumper raised (same fix as the left one, Part G1, never applied here)
+G1 only raised the LEFT side bumper; the right one (`SIDE_BUMPERS[1]`) was untouched. The
+user now reports the same "ball gets stuck" symptom on the right, worse ("doesn't pass at
+all"). Moved `(634,820)` -> `(634,795)` — 25px, a bigger move than the left one's 15px given
+the more severe report. Same caveat as G1: exact snag geometry unconfirmed without an
+engine to reproduce in.
+
+## I4 Third wing flipper: right wall, ~slot height
+`WING_RIGHT_WALL_PIVOT = (620,745)`, `WING_RIGHT_WALL_SCALE = 0.55` (table.gd), fires with
+`flip_right` alongside the other right-side flippers. Placed in the one open pocket against
+the right wall (divider inner face x=634) in that height band: below the INDY target bank
+(ends y=674) and to the right of ramp R1's rail column (centred x≈528, ±20.5px in this flat
+stretch, so blocked up to x≈548.5) — pivot sits with ~8px clearance from the wall and the
+flipper's own swept reach stays ~18.7px clear of the ramp corridor at its closest. This is a
+tight pocket (a smaller-scale flipper was the only way it fit both constraints); if it still
+looks cramped in play, shrinking `WING_RIGHT_WALL_SCALE` further (e.g. to 0.45) is the safe
+follow-up rather than moving the pivot closer to either boundary.
+
+## Acceptance (Part I) — not yet run
+- I-A1 no Rules changes in this part; all earlier tests should be unaffected.
+- I-A2 manual play (the one that matters): plunger visibly launches much harder; TAB zoom
+  reads as "about 1.5x", not too close; a ball rolling down the right side no longer wedges
+  near the (now higher) right side bumper; the new right-wall wing flipper is reachable,
+  visible (not under the ramp or clipped by the wall/target bank), and doesn't overlap the
+  existing right-side wing flipper or the INDY target bank.
