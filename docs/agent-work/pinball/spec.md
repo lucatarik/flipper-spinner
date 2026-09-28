@@ -324,3 +324,87 @@ bonus names shown as the slot's win banner (e.g. "EXTRA BALL!", "ADD-A-BALL!").
   nudge_up raises a resting ball's upward speed; after a tilt, set_pressed on a flipper does not
   move it; request_add_ball(1) adds one ball to group "balls".
 - All previous tests pass; no SCRIPT ERROR/ERROR headless; no GDScript warnings windowed.
+
+---
+# Part D — user feedback round 3 (stuck ball, ramps, slot only with ball in play, music)
+
+## D1 Stuck ball on the right (verified by orchestrator simulation)
+A dropped INDY target leaves a 33 px deep pocket between its standing neighbours and the
+divider (x≈601..634); the ball comes to rest in it (seen at (610,580)). Fix:
+- A dropped target must leave a FLUSH surface: keep a thin static strip along the bank's face
+  line (x≈601) over the dropped target's span, so the bank face is always a continuous wall.
+- Add angled deflector caps (stone, 45°) above the top target and below the bottom target so a
+  ball can't rest on the bank's ends.
+- Stuck-ball safety (table): speed < 30 px/s for 2.0 s outside scoop/shooter lane/ramps →
+  nudge impulse 350 px/s up-left/up-right (away from nearest wall); after 3 failed nudges on the
+  same ball → rescue: move it into the idol scoop capture (normal scoop hold + kick, no score).
+- Regression test: randomized drops (≥150 seeds, positions x 430..630, y 230..900, random
+  velocities) with targets in random down/up states: no ball may stay slower than 30 px/s for
+  3 s anywhere except the shooter lane/plunger and the scoop.
+
+## D2 Ramps (elevated, drawn above the playfield)
+Two ramps. A ramp = centreline polyline + width 36 px, two rail walls (StaticBody2D) on a NEW
+physics layer 5 (bit value 16) that playfield balls never collide with. Ball states:
+- ENTER: ball overlaps the ramp mouth Area2D while moving "into" the ramp (dot(v, mouth_dir) > 250)
+  → ball.collision_mask = 16 (ramp rails only), z_index above everything but HUD, visual
+  scale 1.15 + soft drop shadow offset (8,10), sound `ramp_enter`.
+- FALL BACK: ball leaves through the mouth moving out before reaching the COMMIT sensor
+  (≈40 % along) → restore playfield mask (1|2|4), scale 1.0.
+- EXIT: ball reaches the exit sensor → restore playfield mask, scale 1.0, place it at the exit
+  point with the ramp's exit velocity (≥ 200 px/s along the exit direction), fire
+  `rules.on_event("ramp", {"name": ramp_name})`, sound `ramp_made`, light chase along the ramp.
+- Ramps are drawn as raised stone/gold tracks (Polygon2D surface semi-opaque, rails Line2D gold,
+  support pillars, shadow on the playfield), z above slot and bumpers.
+Geometry (centreline, logical px):
+- R1 "TEMPLE RAMP" (long, crosses above the slot, returns to the left inlane):
+  mouth (528,812) opening downward (mouth_dir = (0,-1)); path
+  (528,812) → (528,575) → arc → (490,555) → (160,555) → arc → (112,590) → (112,760) → (55,930);
+  exit at (55,930) direction (0,1) into the left inlane (between wall x20 and the left sling).
+  Commit sensor at (528,640). Move the pop bumper (330,525) to (330,495) so it isn't under the ramp.
+- R2 "IDOL RAMP" (upper right, feeds the top lanes): mouth (590,452) opening downward
+  (mouth_dir = (0,-1)); path (590,452) → (590,300) → (560,200) → (500,140) → (425,122);
+  exit at (425,122) direction (-1,0.3) dropping into/over the right top lane (x≈420).
+  Commit sensor at (590,380).
+- Ball on a ramp still feels gravity; tune rail friction/bounce so a flipper shot at full
+  speed makes both ramps (verify in physics_smoke) and a weak shot falls back.
+- Rules (additive): event `ramp` {name}: +10 000, bonus += 2 500, slot energy +2 (table),
+  mode 1 "MINE CART CHASE" qualifies on orbit OR ramp; COMBO: a ramp within 3 s of another
+  ramp/orbit → +25 000 and message "COMBO"; every 4th ramp in a game → EXTRA BALL (same cap 3),
+  message "EXTRA BALL". New signal `ramp_count_changed(n: int)`.
+
+## D3 Slot only while a ball is in play
+The slot spins ONLY when rules.state == PLAYING and a ball is actually in play: from the
+first `plunger_exit` of a served ball until balls_in_play == 0 (drain), and not while the only
+ball is waiting in the shooter lane, and not while tilted. When the condition drops, the current
+spin finishes and evaluates (payouts still applied if PLAYING), then the slot idles (reels still,
+marquee dim, "PLUNGE TO SPIN"). In ATTRACT / GAME_OVER the reels are still (no demo spins).
+Expose `slot_view.set_active(active: bool)`; table drives it from Rules/ball events.
+
+## D4 Background music "Camel Groove" (original, inspired-by style only)
+User request: light background music inspired by Sandy Marton's "Camel by Camel" (1985).
+Copyright: DO NOT reproduce its melody, lyrics, riff or chord sequence. Create an ORIGINAL piece
+in the same *style*: mid-80s Italo-disco, 118 BPM, 4-on-the-floor kick, off-beat open hi-hat,
+gated clap on 2 and 4, octave-jumping synth bass, lush pad, and an original lead motif in an
+"oriental" scale (Phrygian dominant on E: E F G# A B C D), soft and not dominant.
+- `game/tools/gen_music.py` (Python 3 stdlib only; if `ffmpeg` exists convert to .ogg q4,
+  otherwise keep .wav) writes `game/assets/music/camel_groove.ogg|wav`: 32 bars (~65 s),
+  seamless loop, mono or stereo 22 050 Hz, peak ≤ −3 dBFS, deterministic.
+- Music plan: attract/game over = desert_mystic.ogg; normal play = camel_groove; multiball /
+  free spins = desert_mystic3.ogg. Music volume −14 dB ("leggera").
+- Toggle: action `music_toggle` (key N) + clickable/tappable speaker icon (drawn with Polygon2D/
+  Label, top-right under the ball counter). Mutes/unmutes MUSIC only (SFX stay), message
+  "MUSIC ON/OFF", setting persisted in `user://settings.cfg` ([audio] music=true/false).
+  `Sfx.set_music_enabled(on: bool)`, `Sfx.is_music_enabled() -> bool`.
+- Add CREDITS.md line: "camel_groove — original composition generated by gen_music.py (style
+  homage to 80s Italo-disco; no material from any existing song)".
+
+## Acceptance (Part D)
+- D-A1 stuck regression test (D1) passes; target drop leaves a flush face (physics test).
+- D-A2 physics_smoke: full-speed shot into each ramp mouth → `ramp` event and ball exits at the
+  exit point on playfield layers; weak shot (≈350 px/s) falls back and returns to playfield
+  layers; ball on a ramp does not collide with bumpers/slot/targets underneath.
+- D-A3 run_tests: ramp scoring, combo window, 4th ramp extra ball (cap), mode 1 qualifies on ramp.
+- D-A4 slot: no spin in ATTRACT; no spin with ball waiting in shooter lane; spins after plunge;
+  stops after drain (current spin completes); test via slot_view state/cycle counts.
+- D-A5 gen_music.py produces the file (duration 60–70 s); music toggle persists (unit test on
+  the settings helper); game runs with no errors/warnings.
