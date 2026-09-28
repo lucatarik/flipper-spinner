@@ -676,3 +676,60 @@ follow-up rather than moving the pivot closer to either boundary.
   near the (now higher) right side bumper; the new right-wall wing flipper is reachable,
   visible (not under the ramp or clipped by the wall/target bank), and doesn't overlap the
   existing right-side wing flipper or the INDY target bank.
+
+---
+# Part J — visual layout editor (user request: "how do I move elements visually?")
+
+Also implemented by hand (no Godot/opencode in this sandbox), not run/verified headless.
+The whole table is code-generated (no scene nodes to drag in the Godot editor), so this
+adds an in-game dev tool instead of touching the editor workflow.
+
+## J1 `scripts/layout_editor.gd` (new)
+A `Node2D`, `process_mode = PROCESS_MODE_ALWAYS` so its toggle/save keys and drag handling
+keep working even while it pauses the tree (`get_tree().paused`). `setup(entries)` takes a
+list of `{"name": String, "get": Callable, "set": Callable}` and draws a small cyan circle
+handle per entry, positioned each frame from `get`. `E` toggles edit mode (pause +
+show/hide handles); while active, click-drag a handle (hit-test by distance, `HANDLE_RADIUS
+= 14`) moves it via `set(get_global_mouse_position())`; `S` serializes every entry's current
+value to `res://layout_overrides.json` (flat `{name: [x,y]}`, via `JSON.stringify`). A
+static `load_overrides()` reads that file back (missing/corrupt -> `{}`, never crashes,
+same tolerant pattern as `settings.gd`).
+
+## J2 table.gd wiring
+`_build_layout_editor()` (called last in `_ready()`, after every dynamic element exists):
+builds `_layout_entries` (`_build_layout_entries`), applies any saved overrides on top of
+the just-built defaults (`_apply_layout_overrides`), then constructs the editor and hands
+it the entries. Two entry shapes:
+- `_add_layout_pos(name, node)`: for anything with a plain `.position` (both wing-flipper
+  pairs — 4 total, both side bumpers, both vortex holes, all 5 round pop bumpers, all 7
+  soft-bonus spawn spots).
+- `_add_layout_field(name, obj, field)`: for the 2 mini bumpers, which need their `point_a`
+  and `point_b` each editable separately (4 handles) — dragging the bumper's live,
+  constantly-animated `position` wouldn't make sense, so these target the track endpoints
+  directly via `Object.get/set(field)`. (Edit mode pauses the tree, so the mini bumper's
+  own `_physics_process` — default process mode — stops animating it while you drag.)
+
+Soft-bonus spawn spots got a structural change to make them actually editable: 7 invisible
+`Node2D` markers (`_build_soft_spot_markers`, one per `SOFT_BONUS_SPOTS` entry) are now the
+source of truth `_spawn_soft_bonus()` reads from (`marker.position`), not the const array
+directly — so dragging/saving a spot's marker changes where bonuses actually spawn from
+then on, with no other plumbing needed.
+
+Deliberately NOT made draggable: main flippers, scoop, target bank, ramps, lane sensors,
+orbit, slot, walls — all structurally load-bearing (multi-point paths, collision logic tied
+to specific geometry) where a generic position drag could silently break something. Matches
+the user's own framing ("alcuni elementi", not everything).
+
+## J3 Persistence answer (the user's actual question)
+`layout_overrides.json` is a plain file inside `game/`, loaded once at `_ready()` and never
+written to except by pressing `S`. It's git-trackable like any other project file — commit
+it directly, or paste its contents back so the numbers get folded into the real consts in
+`table.gd` (removes the need for the override file once done).
+
+## Acceptance (Part J) — not yet run
+- J-A1 no Rules changes; all earlier tests unaffected.
+- J-A2 manual play (the one that matters): `E` pauses the game and shows handles at the
+  right spots; dragging one visibly moves the real element (not just the handle); `S`
+  writes `layout_overrides.json` and it's readable JSON; relaunching the game restores the
+  saved positions without any code changes; mini-bumper `point_a`/`point_b` handles show
+  the track endpoints (not wherever the bumper happened to be mid-swing when paused).

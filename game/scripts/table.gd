@@ -21,6 +21,7 @@ const RampScript = preload("res://scripts/ramp.gd")
 const MiniBumperScript = preload("res://scripts/mini_bumper.gd")
 const KickbackHoleScript = preload("res://scripts/kickback_hole.gd")
 const SoftBonusScript = preload("res://scripts/floating_bonus.gd")
+const LayoutEditorScript = preload("res://scripts/layout_editor.gd")
 
 const TEX_PLAYFIELD = preload("res://assets/playfield.jpg")
 const TEX_BUMPER = preload("res://assets/sprites/bumper.png")
@@ -202,6 +203,9 @@ var _gravity_normal := 1400.0
 var _gravity_half := false
 var _soft_bonus: Node = null
 var _soft_bonus_timer := 4.0
+var _soft_spot_markers: Array = []
+var _layout_entries: Array = []
+var _layout_editor
 
 func _ready() -> void:
 	_sfx = get_node_or_null("/root/Sfx")
@@ -222,8 +226,10 @@ func _ready() -> void:
 	_build_features()
 	_build_slot()
 	_build_vortex_holes()
+	_build_soft_spot_markers()
 	_build_ramps()
 	_build_lights()
+	_build_layout_editor()
 	if hud and hud.has_method("setup"):
 		hud.setup(rules)
 	if hud:
@@ -662,12 +668,22 @@ func _update_soft_bonus(delta: float) -> void:
 			_spawn_soft_bonus()
 
 func _spawn_soft_bonus() -> void:
-	var pos: Vector2 = SOFT_BONUS_SPOTS[randi() % SOFT_BONUS_SPOTS.size()]
+	var marker: Node2D = _soft_spot_markers[randi() % _soft_spot_markers.size()]
 	var b := SoftBonusScript.new()
-	b.position = pos
+	b.position = marker.position
 	add_child(b)
 	b.collected.connect(_on_soft_bonus_collected)
 	_soft_bonus = b
+
+## Invisible markers, one per SOFT_BONUS_SPOTS entry: `_spawn_soft_bonus` reads
+## their *current* position (draggable in the layout editor), not the literal
+## const, so edits to soft-bonus spawn spots persist without touching this file.
+func _build_soft_spot_markers() -> void:
+	for pos in SOFT_BONUS_SPOTS:
+		var m := Node2D.new()
+		m.position = pos
+		add_child(m)
+		_soft_spot_markers.append(m)
 
 func _on_soft_bonus_collected(kind: String) -> void:
 	switch_hit.emit("soft_bonus")
@@ -992,6 +1008,59 @@ func _build_lights() -> void:
 	lights.set_lanes(rules.lanes)
 	lights.set_bonus_bumpers(rules.bonus_bumpers)
 	_refresh_target_lights()
+
+## Dev tool (press E in-game): registers every element we've been hand-tuning
+## by position so they can be dragged and saved to layout_overrides.json
+## instead of always coming back here to edit consts. Applies any saved
+## overrides on top of the just-built defaults before showing anything.
+func _build_layout_editor() -> void:
+	_build_layout_entries()
+	_apply_layout_overrides()
+	_layout_editor = LayoutEditorScript.new()
+	_layout_editor.name = "LayoutEditor"
+	add_child(_layout_editor)
+	_layout_editor.setup(_layout_entries)
+
+func _build_layout_entries() -> void:
+	_layout_entries = []
+	_add_layout_pos("wing_left", wing_left_flipper)
+	_add_layout_pos("wing_right", wing_right_flipper)
+	_add_layout_pos("wing_top_left", wing_top_left_flipper)
+	_add_layout_pos("wing_right_wall", wing_right_wall_flipper)
+	_add_layout_pos("side_bumper_left", side_bumpers[0])
+	_add_layout_pos("side_bumper_right", side_bumpers[1])
+	for i in vortex_holes.size():
+		_add_layout_pos("vortex_hole_%d" % i, vortex_holes[i])
+	for i in pop_bumpers.size():
+		_add_layout_pos("pop_bumper_%d" % i, pop_bumpers[i])
+	for i in mini_bumpers.size():
+		_add_layout_field("mini_bumper_%d_a" % i, mini_bumpers[i], "point_a")
+		_add_layout_field("mini_bumper_%d_b" % i, mini_bumpers[i], "point_b")
+	for i in _soft_spot_markers.size():
+		_add_layout_pos("soft_spot_%d" % i, _soft_spot_markers[i])
+
+func _add_layout_pos(entry_name: String, node: Node2D) -> void:
+	_layout_entries.append({
+		"name": entry_name,
+		"get": func(): return node.position,
+		"set": func(v): node.position = v,
+	})
+
+func _add_layout_field(entry_name: String, obj: Object, field: String) -> void:
+	_layout_entries.append({
+		"name": entry_name,
+		"get": func(): return obj.get(field),
+		"set": func(v): obj.set(field, v),
+	})
+
+func _apply_layout_overrides() -> void:
+	var data := LayoutEditorScript.load_overrides()
+	if data.is_empty():
+		return
+	for entry in _layout_entries:
+		var saved = data.get(entry["name"])
+		if saved is Array and saved.size() == 2:
+			entry["set"].call(Vector2(float(saved[0]), float(saved[1])))
 
 func _build_slot() -> void:
 	slot = SlotScene.instantiate()

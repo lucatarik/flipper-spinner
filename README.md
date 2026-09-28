@@ -71,6 +71,22 @@ Because sometimes you just want to see the lights go off:
 | `V` | Toggles gravity between 100% and 50% |
 | `Tab` | Toggles a zoomed-in camera that follows the ball (the first one into play, in multiball) |
 
+### Layout editor (dev tool, not a gameplay cheat)
+
+Most of the dynamic elements (wing flippers, side bumpers, mini bumpers, vortex holes,
+pop bumpers, soft-bonus spawn spots) can be repositioned live instead of editing consts
+by hand:
+
+| Key | Effect |
+|---|---|
+| `E` | Toggle layout-edit mode: pauses the game and shows draggable cyan handles |
+| (drag) | Click and drag a handle with the mouse to move that element |
+| `S` | While in edit mode: save every handle's current position to `game/layout_overrides.json` |
+
+`layout_overrides.json` is loaded back automatically on the next launch and applied on
+top of the hardcoded defaults, so a saved layout persists — just commit that file like
+any other, or hand its contents back for someone to bake into `table.gd`'s constants.
+
 ## Running it
 
 Requires **Godot 4.7.2** (or compatible 4.7.x).
