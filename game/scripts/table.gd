@@ -73,17 +73,17 @@ const WING_FLIPPER_SCALE := 0.75
 const WING_LEFT_PIVOT := Vector2(140, 870)
 const WING_RIGHT_PIVOT := Vector2(535, 870)
 
-## A third, smaller left-side wing flipper further up the table (also fires with
-## flip_left), clear of the pop bumper at (150,330), the scoop and the top lanes.
-const WING_TOP_LEFT_SCALE := 0.55
+## A third, left-side wing flipper further up the table (also fires with
+## flip_left), clear of the pop bumper at (150,330), the scoop and the top
+## lanes. Same size as the lower pair (WING_FLIPPER_SCALE, user request — was
+## smaller); if it now clips something in that tighter upper pocket, nudge it
+## with the layout editor (E) rather than shrinking it back down.
 const WING_TOP_LEFT_PIVOT := Vector2(170, 250)
 
 ## A right-side wing flipper hugging the right wall (the shooter-lane divider,
 ## inner face x=634) at about slot height, in the pocket between the INDY
 ## target bank above (ends y=674) and ramp R1's rail column (x~508-548 in this
-## band) to its left — small scale so it fits that pocket without clipping
-## either. Also fires with flip_right.
-const WING_RIGHT_WALL_SCALE := 0.55
+## band) to its left. Also fires with flip_right. Same size caveat as above.
 const WING_RIGHT_WALL_PIVOT := Vector2(620, 745)
 
 ## Small bumpers that patrol back and forth over the (non-colliding) slot pit.
@@ -945,13 +945,13 @@ func _build_flippers() -> void:
 
 	wing_top_left_flipper = FlipperScript.new()
 	wing_top_left_flipper.side = "left"
-	wing_top_left_flipper.size_scale = WING_TOP_LEFT_SCALE
+	wing_top_left_flipper.size_scale = WING_FLIPPER_SCALE
 	wing_top_left_flipper.position = WING_TOP_LEFT_PIVOT
 	add_child(wing_top_left_flipper)
 
 	wing_right_wall_flipper = FlipperScript.new()
 	wing_right_wall_flipper.side = "right"
-	wing_right_wall_flipper.size_scale = WING_RIGHT_WALL_SCALE
+	wing_right_wall_flipper.size_scale = WING_FLIPPER_SCALE
 	wing_right_wall_flipper.position = WING_RIGHT_WALL_PIVOT
 	add_child(wing_right_wall_flipper)
 

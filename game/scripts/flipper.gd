@@ -4,14 +4,17 @@ extends AnimatableBody2D
 ## (omega x r, at most once per swing per ball); at the top of the swing the bat is
 ## a solid static surface so a held flipper cradles the ball.
 
-const BASE_LENGTH := 96.0
+## Base 96.0, +10% (user request): flipper reach, including all wings via
+## size_scale, scales off this.
+const BASE_LENGTH := 105.6
 const BASE_PIVOT_RADIUS := 11.0
 const BASE_TIP_RADIUS := 7.0
 const REST_ANGLE := deg_to_rad(28.0)
-## Base 15.0/1.15, +10% (user request), then +10% again on top (user request):
-## 15.0 -> 16.5 -> 18.15 rad/s; 1.15 -> 1.265 -> 1.3915.
+## Speed base 15.0, +10% twice over (user requests): 15.0 -> 16.5 -> 18.15.
+## Power base 1.15, +10% three times over (user requests): 1.15 -> 1.265 ->
+## 1.3915 -> 1.53065. Directly scales the ball's kicked-away speed too.
 const SWING_SPEED := 18.15      # rad/s while swinging
-const KICK_MULT := 1.3915
+const KICK_MULT := 1.53065
 
 const GOLD := Color("#d4a017")
 const DARK := Color("#3a2c0c")

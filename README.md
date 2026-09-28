@@ -29,7 +29,9 @@ material from either source.
   appear at random spots and grant a bonus (points, a multiplier bump, or a
   ball save) on touch — they have no collision at all, so the ball just rolls
   straight through them.
-- Two elevated ramps, a drop-target bank ("I-N-D-Y"), rollover lanes, orbits, a
+- Two elevated **wireform ramps** (an open metal-wire rail, not a solid track —
+  the playfield art stays visible underneath as the ball rides the wire), a
+  drop-target bank ("I-N-D-Y"), rollover lanes, orbits, a
   central idol scoop, slingshots, a mode ladder, "Eternal Life" multiball, ball
   save, extra balls, nudge, and a proper tilt system that kills the flippers and
   eats your bonus if you shake the machine too hard.

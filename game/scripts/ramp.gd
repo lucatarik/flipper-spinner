@@ -16,7 +16,6 @@ const MIN_EXIT_SPEED := 200.0
 const GRAVITY := 1400.0
 const PLAYFIELD_MASK := 7  # layers 1|2|3 (walls, ball, flippers)
 
-const STONE := Color("#8a7a58")
 const STONE_DARK := Color("#4a4030")
 const GOLD := Color("#d4a017")
 
@@ -184,49 +183,66 @@ func _build() -> void:
 	_build_rails()
 	_build_mouth()
 
+## Wireform look (user request, matching a real elevated-wire pinball ramp):
+## no solid deck at all — just the two rails, sparse cross-braces and support
+## posts, so the playfield art stays visible underneath and the ball reads as
+## riding an actual wire rather than sliding on a painted track.
 func _build_visuals() -> void:
-	var shadow := Line2D.new()
-	var sp := PackedVector2Array()
-	for p in points:
-		sp.append(p + Vector2(8.0, 10.0))
-	shadow.points = sp
-	shadow.width = WIDTH + 10.0
-	shadow.default_color = Color(0, 0, 0, 0.32)
-	shadow.z_index = 1
-	add_child(shadow)
+	var left_rail := _offset_path(1.0, WIDTH * 0.5)
+	var right_rail := _offset_path(-1.0, WIDTH * 0.5)
 
-	var surface := Line2D.new()
-	surface.points = points
-	surface.width = WIDTH
-	surface.default_color = Color(STONE.r, STONE.g, STONE.b, 0.92)
-	surface.z_index = 6
-	add_child(surface)
-	var edge := Line2D.new()
-	edge.points = points
-	edge.width = 2.0
-	edge.default_color = STONE_DARK
-	edge.z_index = 7
-	add_child(edge)
+	# each wire casts its own thin shadow, not one solid band
+	for rail_pts in [left_rail, right_rail]:
+		var shadow := Line2D.new()
+		var sp := PackedVector2Array()
+		for p in rail_pts:
+			sp.append(p + Vector2(6.0, 8.0))
+		shadow.points = sp
+		shadow.width = RAIL_THICK + 3.0
+		shadow.default_color = Color(0, 0, 0, 0.35)
+		shadow.z_index = 1
+		add_child(shadow)
 
-	# support pillars
+	# support posts under each wire (not one central post)
 	for i in range(1, points.size() - 1, 2):
-		var p := points[i]
-		var pil := Polygon2D.new()
-		pil.polygon = PackedVector2Array([
-			Vector2(-4, 0), Vector2(4, 0), Vector2(4, 16), Vector2(-4, 16)])
-		pil.color = STONE_DARK
-		pil.position = p + Vector2(0, 6)
-		pil.z_index = 5
-		add_child(pil)
+		for rail_pts in [left_rail, right_rail]:
+			var pil := Polygon2D.new()
+			pil.polygon = PackedVector2Array([
+				Vector2(-2, 0), Vector2(2, 0), Vector2(2, 14), Vector2(-2, 14)])
+			pil.color = STONE_DARK
+			pil.position = rail_pts[i] + Vector2(0, 4)
+			pil.z_index = 5
+			add_child(pil)
 
-	# rails (visual) and chase lamps
-	for side in [1.0, -1.0]:
+	# sparse cross-wires bracing the two rails, like a real wireform ramp
+	var rung_step: int = max(2, int(_total / 90.0))
+	for i in range(rung_step + 1):
+		var s := _total * float(i) / float(rung_step)
+		var center := _point_at(s)
+		var t := _tangent_at(s)
+		var n := Vector2(-t.y, t.x)
+		var rung := Line2D.new()
+		rung.points = PackedVector2Array([center - n * (WIDTH * 0.5), center + n * (WIDTH * 0.5)])
+		rung.width = 2.0
+		rung.default_color = GOLD.darkened(0.25)
+		rung.z_index = 6
+		add_child(rung)
+
+	# the two gold wires themselves — this IS the ramp, no fill between them
+	for rail_pts in [left_rail, right_rail]:
+		var rail_edge := Line2D.new()
+		rail_edge.points = rail_pts
+		rail_edge.width = RAIL_THICK + 2.0
+		rail_edge.default_color = STONE_DARK
+		rail_edge.z_index = 7
+		add_child(rail_edge)
 		var rail := Line2D.new()
-		rail.points = _offset_path(side, WIDTH * 0.5)
+		rail.points = rail_pts
 		rail.width = RAIL_THICK
 		rail.default_color = GOLD
 		rail.z_index = 8
 		add_child(rail)
+
 	var steps: int = max(2, int(_total / 70.0))
 	for i in range(steps + 1):
 		var s := _total * float(i) / float(steps)

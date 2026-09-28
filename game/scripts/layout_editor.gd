@@ -8,6 +8,9 @@ extends Node2D
 ## while the rest of the tree is paused.
 
 const HANDLE_RADIUS := 14.0
+## Click tolerance is bigger than the drawn handle: flippers especially are
+## easy to miss by a few pixels since the pivot isn't where the eye lands.
+const CLICK_RADIUS := 26.0
 const SAVE_PATH := "res://layout_overrides.json"
 const HANDLE_COLOR := Color(0.2, 0.9, 1.0, 0.55)
 const HANDLE_DRAG_COLOR := Color(1.0, 0.85, 0.2, 0.8)
@@ -78,13 +81,20 @@ func _input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion and _drag_index >= 0:
 		entries[_drag_index]["set"].call(get_global_mouse_position())
 
+## Picks the CLOSEST handle within CLICK_RADIUS, not just the first match, so
+## two nearby handles don't fight over an ambiguous click.
 func _try_start_drag(world_pos: Vector2) -> void:
+	var best := -1
+	var best_dist := CLICK_RADIUS
 	for i in entries.size():
 		var p: Vector2 = entries[i]["get"].call()
-		if world_pos.distance_to(p) <= HANDLE_RADIUS:
-			_drag_index = i
-			_handles[i].color = HANDLE_DRAG_COLOR
-			return
+		var d: float = world_pos.distance_to(p)
+		if d <= best_dist:
+			best = i
+			best_dist = d
+	if best >= 0:
+		_drag_index = best
+		_handles[best].color = HANDLE_DRAG_COLOR
 
 func _toggle() -> void:
 	active = not active

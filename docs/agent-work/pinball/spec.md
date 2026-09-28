@@ -733,3 +733,81 @@ it directly, or paste its contents back so the numbers get folded into the real 
   writes `layout_overrides.json` and it's readable JSON; relaunching the game restores the
   saved positions without any code changes; mini-bumper `point_a`/`point_b` handles show
   the track endpoints (not wherever the bumper happened to be mid-swing when paused).
+
+---
+# Part K — user feedback round 9 (apply saved layout, fix wing drag, unify wing size,
+# more flipper power/length, bumper light+fire+upward kick, wireform ramps)
+
+Also implemented by hand (no Godot/opencode in this sandbox), not run/verified headless.
+
+## K1 Applied the user's saved layout
+`game/layout_overrides.json` now holds the file the user exported from the in-game editor
+(all mini-bumper/pop-bumper/side-bumper/vortex-hole/soft-spot positions they dragged).
+Loads automatically via the existing `table._apply_layout_overrides()` path — no code
+change needed for this part, just committing the file.
+
+## K2 Wing flippers wouldn't drag — click tolerance too tight
+The 4 wing entries in the saved file are still at their exact defaults — the user's drags
+on them never registered, while every other (smaller, roughly circular) element moved
+fine. Likely cause: `layout_editor.gd`'s hit-test only accepted clicks within
+`HANDLE_RADIUS = 14px` of the flipper's *pivot*, but a flipper is a long bat — the natural
+click target is the visible paddle body, well outside that radius. Fixed two ways:
+`CLICK_RADIUS = 26` (separate from the drawn handle size) widens the tolerance, and
+`_try_start_drag` now picks the *closest* handle within radius instead of the first match
+in iteration order, so two nearby handles no longer fight over an ambiguous click. Not
+verified against an engine — if wings still won't drag, the pivot itself may need its own
+larger dedicated hit shape rather than a bigger generic radius.
+
+## K3 All 4 wing flippers now the same size
+`WING_TOP_LEFT_SCALE` (0.55) and `WING_RIGHT_WALL_SCALE` (0.55) removed; both wings now use
+`WING_FLIPPER_SCALE = 0.75`, same as the lower pair (user request — they were smaller for
+clearance reasons in tighter pockets). If either now clips something, the layout editor is
+the tool to fix it with, not shrinking the scale back down.
+
+## K4 Flipper length +10%, power +10% again (3rd time)
+`flipper.gd`: `BASE_LENGTH` 96 -> 105.6 (+10%, scales every flipper via size_scale too);
+`KICK_MULT` 1.3915 -> 1.53065 (+10% again — 3rd bump total across this session: 1.15 ->
+1.265 -> 1.3915 -> 1.53065). `SWING_SPEED` untouched this round (user asked for "forza"/
+power specifically, not speed again). Kick power multiplies the ball's launch velocity
+directly, so this alone delivers "the ball flies away faster" — no separate mechanism
+needed.
+
+## K5 Round pop bumpers: brighter flash, fire burst, upward-biased kick
+`bumper.gd`:
+- Light-up: the transient glow bump raised (1.8 -> 2.6 energy) and slowed (decay ×4/s
+  instead of ×5/s), **plus** a new overbright flash on the bumper's own sprite (`FLASH_COLOR`
+  channels >1, `Color.WHITE.lerp(FLASH_COLOR, ...)` over `FLASH_TIME = 0.12s`) — the sprite
+  is reparented onto the node by table.gd *after* `_ready()`, so it's looked up lazily
+  (`_find_sprite()`) rather than cached upfront.
+- Fire effect: a `CPUParticles2D` (`_build_fire()`, one-shot, 14 particles, orange/red/gold
+  gradient, short outward burst) built once in `_ready()` and `restart()` + `emitting = true`
+  on every hit — reused, not spawned/freed per hit.
+- Upward bias: the radial kick direction's downward component is softened to 35%
+  (`DOWNWARD_SOFTEN`) and its upward component boosted 15% (`UPWARD_BOOST`) before
+  re-normalizing and applying `KICK_IMPULSE` — so a hit from any angle tends to send the
+  ball up more than down, not just hits that were already upward-ish.
+Scoped to `bumper.gd` only (the round ones), same as the earlier +30% impulse change —
+`side_bumper.gd`/`mini_bumper.gd` untouched.
+
+## K6 Ramps redone as a wireform (user request, reference photo of a real Indiana Jones
+## table's overhead wire rail)
+`ramp.gd` `_build_visuals()` rewritten: removed the solid `surface` Line2D (width 36,
+opaque stone fill — this was the "filled" look the user disliked) and the single wide
+`shadow`/`edge` bands entirely. Replaced with, per rail (`_offset_path(±1, WIDTH*0.5)`):
+its own thin drop shadow, its own line of small support posts (instead of one central
+post line), and the gold rail itself with a thin dark outline for a rounded-wire look —
+plus sparse perpendicular cross-wire "rungs" every `_total/90` along the path bracing the
+two rails together, matching the reference photo's wire-frame structure. The playfield art
+underneath is now fully visible through the gap between the rails. Chase lamps unchanged.
+Physics (the actual layer-16 rail collision in `_build_rails()`) is untouched — this is a
+rendering-only change; ball elevation still reads from the existing scale-up + drop-shadow
+the ball itself gets while `on_ramp` (ball.gd, D2).
+
+## Acceptance (Part K) — not yet run
+- K-A1 no Rules changes; all earlier tests unaffected.
+- K-A2 manual play (the one that matters, most of this part is visual/feel): saved layout
+  positions show up on next launch; wing flippers ARE draggable now and end up the same
+  visible size as the lower pair; flippers noticeably longer and stronger again; round
+  bumpers flash bright + spit a small spark burst + visibly favour upward trajectories on
+  hit from any angle; ramps read as an open wire rail with the playfield art visible
+  underneath, not a solid painted track.
