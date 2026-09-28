@@ -8,8 +8,10 @@ const BASE_LENGTH := 96.0
 const BASE_PIVOT_RADIUS := 11.0
 const BASE_TIP_RADIUS := 7.0
 const REST_ANGLE := deg_to_rad(28.0)
-const SWING_SPEED := 16.5       # rad/s while swinging (+10% speed, user request)
-const KICK_MULT := 1.265        # +10% power, user request
+## Base 15.0/1.15, +10% (user request), then +10% again on top (user request):
+## 15.0 -> 16.5 -> 18.15 rad/s; 1.15 -> 1.265 -> 1.3915.
+const SWING_SPEED := 18.15      # rad/s while swinging
+const KICK_MULT := 1.3915
 
 const GOLD := Color("#d4a017")
 const DARK := Color("#3a2c0c")

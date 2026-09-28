@@ -5,7 +5,7 @@ extends StaticBody2D
 signal hit
 
 
-const KICK_IMPULSE := 820.0
+const KICK_IMPULSE := 1066.0    # +30% bounce power (user request), was 820.0
 const COOLDOWN_MS := 120
 const COLOR_OFF := Color("#ffcf5a")
 const COLOR_LIT := Color("#5bffa0")

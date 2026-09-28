@@ -1,14 +1,22 @@
 extends Node2D
 ## "Soft" bonus pickup: pure Area2D, no collision body at all, so the ball rolls
-## straight through it (no resistance). Appears at a random spot on the table,
-## picks a random kind, pulses/spins, and grants a small bonus on touch — or
-## just fades away if nothing touches it before LIFETIME runs out.
+## straight through it (no resistance). Appears at a random spot on the table as
+## one of the game's own Egyptian slot-symbol icons (not a generic orb), glowing
+## and gently pulsing, and grants a small bonus on touch — or just fades away if
+## nothing touches it before LIFETIME runs out.
 
 signal collected(kind: String)
 
 const KINDS := ["points", "multiplier", "ball_save"]
-const RADIUS := 16.0
+const TARGET_SIZE := 42.0
 const LIFETIME := 12.0
+
+## Reuse the game's existing slot-symbol art instead of a plain shape: emerald
+## (treasure -> points), scarab (Egyptian luck/multiply symbol -> multiplier),
+## ankh (symbol of life -> ball save).
+const TEX_POINTS = preload("res://assets/slot/emerald.png")
+const TEX_MULTIPLIER = preload("res://assets/slot/scarab.png")
+const TEX_BALL_SAVE = preload("res://assets/slot/ankh.png")
 
 const KIND_COLORS := {
 	"points": Color("#ffd24a"),
@@ -18,8 +26,9 @@ const KIND_COLORS := {
 
 var kind := "points"
 
+var _sprite: Sprite2D
 var _glow: PointLight2D
-var _shape: Polygon2D
+var _base_scale := 1.0
 var _time := 0.0
 var _life := LIFETIME
 var _collected := false
@@ -30,38 +39,31 @@ func _ready() -> void:
 	_build_visual()
 	_build_detect()
 
+func _kind_texture() -> Texture2D:
+	match kind:
+		"multiplier":
+			return TEX_MULTIPLIER
+		"ball_save":
+			return TEX_BALL_SAVE
+		_:
+			return TEX_POINTS
+
 func _build_visual() -> void:
 	var color: Color = KIND_COLORS.get(kind, Color.WHITE)
-	var pts := _blob_points()
-	_shape = Polygon2D.new()
-	_shape.polygon = pts
-	_shape.color = Color(color.r, color.g, color.b, 0.85)
-	add_child(_shape)
-
-	var outline := Line2D.new()
-	outline.points = pts
-	outline.closed = true
-	outline.width = 2.0
-	outline.default_color = Color.WHITE
-	add_child(outline)
 
 	_glow = PointLight2D.new()
 	_glow.texture = Glow.radial_texture()
 	_glow.color = color
-	_glow.energy = 1.0
-	_glow.texture_scale = 1.6
+	_glow.energy = 1.4
+	_glow.texture_scale = 2.4
 	add_child(_glow)
 
-## Soft 10-point "blob" (alternating radius) instead of a plain circle, so it
-## reads as a pickup rather than another bumper.
-func _blob_points() -> PackedVector2Array:
-	var pts := PackedVector2Array()
-	var total := 10
-	for i in total:
-		var a := TAU * float(i) / float(total)
-		var r := RADIUS if i % 2 == 0 else RADIUS * 0.55
-		pts.append(Vector2(cos(a), sin(a)) * r)
-	return pts
+	var tex := _kind_texture()
+	_sprite = Sprite2D.new()
+	_sprite.texture = tex
+	_base_scale = TARGET_SIZE / maxf(float(tex.get_width()), float(tex.get_height()))
+	_sprite.scale = Vector2.ONE * _base_scale
+	add_child(_sprite)
 
 func _build_detect() -> void:
 	var area := Area2D.new()
@@ -70,7 +72,7 @@ func _build_detect() -> void:
 	area.collision_mask = 2
 	var cs := CollisionShape2D.new()
 	var c := CircleShape2D.new()
-	c.radius = RADIUS + 6.0
+	c.radius = TARGET_SIZE * 0.5 + 8.0
 	cs.shape = c
 	area.add_child(cs)
 	add_child(area)
@@ -85,10 +87,10 @@ func _on_body(body: Node) -> void:
 
 func _physics_process(delta: float) -> void:
 	_time += delta
-	scale = Vector2.ONE * (1.0 + 0.08 * sin(_time * 4.0))
-	rotation = _time * 0.6
+	if _sprite:
+		_sprite.scale = Vector2.ONE * _base_scale * (1.0 + 0.1 * sin(_time * 4.0))
 	if _glow:
-		_glow.energy = 0.8 + 0.5 * absf(sin(_time * 3.0))
+		_glow.energy = 1.1 + 0.7 * absf(sin(_time * 3.0))
 	_life -= delta
 	if _life <= 0.0 and not _collected:
 		_collected = true

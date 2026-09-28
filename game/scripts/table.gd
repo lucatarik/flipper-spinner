@@ -99,8 +99,9 @@ const SOFT_BONUS_SPOTS := [
 const SOFT_BONUS_MIN_DELAY := 7.0
 const SOFT_BONUS_MAX_DELAY := 14.0
 
-## TAB cheat: zoomed-in follow camera (not too close), V cheat: half gravity.
-const ZOOM_FOLLOW := Vector2(0.6, 0.6)
+## TAB cheat: zoomed-in follow camera (+60%; user corrected: 0.6 zoomed OUT
+## instead of in), V cheat: half gravity.
+const ZOOM_FOLLOW := Vector2(1.6, 1.6)
 const ZOOM_NORMAL := Vector2(1.0, 1.0)
 const CAMERA_FOLLOW_LERP := 6.0
 const GRAVITY_HALF_FACTOR := 0.5

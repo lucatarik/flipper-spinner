@@ -591,3 +591,47 @@ Spawning/despawning is driven entirely by `table._update_soft_bonus()`, gated on
   changes fall speed and toggles back; `TAB` zooms in, follows the first ball into play
   through a multiball, and returns to normal on a second press; soft bonus orbs appear,
   don't deflect the ball, and grant their bonus on touch.
+
+---
+# Part H — user feedback round 7 (camera zoom direction, more flipper/bumper power,
+# soft bonuses use the game's own icons)
+
+Also implemented by hand (no Godot/opencode in this sandbox), not run/verified headless.
+
+## H1 Camera zoom was backwards
+`ZOOM_FOLLOW` was `(0.6,0.6)`; the user saw the view shrink instead of enlarge when
+toggling TAB. Per the Godot docs "smaller than (1,1) zooms in" — but that's not what was
+observed in practice, so rather than trust the doc over the user's eyes, flipped it the
+other way: `ZOOM_FOLLOW = (1.6,1.6)` (table.gd). If this direction also comes back wrong,
+the fix is a one-line value swap in the same const — the follow/lerp logic itself
+(`lights.set_zoom`/`_update_camera_follow`) doesn't change either way.
+
+## H2 Flipper power, another +10% on top
+`flipper.gd`: `SWING_SPEED` 16.5 -> 18.15 rad/s, `KICK_MULT` 1.265 -> 1.3915 (compounds
+with Part G2's first +10%; cumulative vs the pre-Part-G baseline: speed ×1.21, kick ×1.21).
+Still shared consts, so this covers the main flippers and all 3 wings together, as asked.
+
+## H3 Round pop bumpers +30% bounce
+`bumper.gd`: `KICK_IMPULSE` 820 -> 1066 (+30%). Scoped to the round pop bumpers only (the 3
+jungle ones + the 2 extra ones, all `bumper.gd`) — NOT the wall-mounted half-disc side
+bumpers (`side_bumper.gd`, not round, not "in alto") and NOT the moving mini bumpers
+(`mini_bumper.gd`, a distinct newer feature, own `KICK_IMPULSE`, untouched). Ball speed
+stays bounded regardless (`ball.gd` clamps to `MAX_SPEED = 3200`).
+
+## H4 Soft bonuses: real icons instead of a drawn blob, more glow
+`floating_bonus.gd` no longer draws a Polygon2D "blob" — it shows one of the game's own
+slot-symbol textures (`Sprite2D`, scaled to a ~42px footprint regardless of the source
+image's own size/aspect ratio) chosen by kind: `points` -> `emerald.png` (treasure),
+`multiplier` -> `scarab.png` (Egyptian luck/multiply symbol), `ball_save` -> `ankh.png`
+(symbol of life — a natural fit for "extra life"). The `PointLight2D` glow got stronger
+(`energy` base 1.1 pulsing to 1.8, `texture_scale` 1.6 -> 2.4) so it reads clearly against
+the playfield art instead of the plain circular glow.
+
+## Acceptance (Part H) — not yet run
+- H-A1 no logic changes to Rules in this part; existing G-A1 tests (`test_soft_bonus`,
+  `test_cheat_reset_ball`) and all earlier tests should be unaffected — re-run
+  `run_tests.gd` to confirm nothing regressed from the bumper.gd/flipper.gd/table.gd edits.
+- H-A2 manual play (the one that matters here): TAB now visibly enlarges the view instead
+  of shrinking it; flippers noticeably snappier again; round pop bumpers kick harder; soft
+  bonus pickups show a recognizable emerald/scarab/ankh icon with a visible glow, not a
+  plain circle.
