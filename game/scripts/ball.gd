@@ -37,4 +37,7 @@ func _build_visual() -> void:
 	add_child(shine)
 
 func _physics_process(_delta: float) -> void:
-	linear_velocity = linear_velocity.limit_length(MAX_SPEED)
+	# Only clamp when actually over the limit: reassigning linear_velocity every
+	# frame would cancel any impulse another node queued for this step.
+	if linear_velocity.length() > MAX_SPEED:
+		linear_velocity = linear_velocity.limit_length(MAX_SPEED)

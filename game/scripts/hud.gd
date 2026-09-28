@@ -8,6 +8,9 @@ var _score_label: Label
 var _ball_label: Label
 var _mult_label: Label
 var _locks_label: Label
+var _extra_label: Label
+var _tilt_label: Label
+var _pf_label: Label
 var _mode_label: Label
 var _bar_bg: ColorRect
 var _bar_fill: ColorRect
@@ -31,9 +34,15 @@ func _ready() -> void:
 	_ball_label = _make_label(Vector2(440, 20), 36, STONE, HORIZONTAL_ALIGNMENT_RIGHT)
 	_mult_label = _make_label(Vector2(24, 72), 30, GOLD, HORIZONTAL_ALIGNMENT_LEFT)
 	_locks_label = _make_label(Vector2(440, 72), 30, STONE, HORIZONTAL_ALIGNMENT_RIGHT)
-	_mode_label = _make_label(Vector2(24, 108), 24, STONE, HORIZONTAL_ALIGNMENT_LEFT)
-	_bar_bg = _make_rect(Vector2(24, 140), Vector2(BAR_W, 14), Color(0.1, 0.09, 0.05, 0.7))
-	_bar_fill = _make_rect(Vector2(24, 140), Vector2(0, 14), GOLD)
+	_extra_label = _make_label(Vector2(24, 108), 26, GOLD, HORIZONTAL_ALIGNMENT_LEFT)
+	_extra_label.visible = false
+	_pf_label = _make_label(Vector2(440, 108), 26, GOLD, HORIZONTAL_ALIGNMENT_RIGHT)
+	_pf_label.visible = false
+	_mode_label = _make_label(Vector2(24, 140), 24, STONE, HORIZONTAL_ALIGNMENT_LEFT)
+	_tilt_label = _make_label(Vector2(440, 140), 26, Color("#ff4040"), HORIZONTAL_ALIGNMENT_RIGHT)
+	_tilt_label.visible = false
+	_bar_bg = _make_rect(Vector2(24, 172), Vector2(BAR_W, 14), Color(0.1, 0.09, 0.05, 0.7))
+	_bar_fill = _make_rect(Vector2(24, 172), Vector2(0, 14), GOLD)
 	_message_label = _make_label(Vector2(0, 330), 52, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
 	_message_label.size.x = 720
 	_message_label.visible = false
@@ -113,9 +122,14 @@ func setup(r) -> void:
 	r.state_changed.connect(_on_state)
 	r.mode_changed.connect(_on_mode)
 	r.game_over.connect(_on_game_over)
+	r.extra_balls_changed.connect(_on_extra_balls)
+	r.tilt_warning.connect(_on_tilt_warning)
+	r.playfield_mult_changed.connect(_on_playfield_mult)
+	r.request_serve_ball.connect(_on_serve)
 	_attract_high.text = "HIGH SCORE  %d" % r.high_score
 	_on_score(r.score)
 	_on_ball(r.ball_number, 3)
+	_on_extra_balls(r.extra_balls)
 	_on_state(r.state)
 
 func _process(delta: float) -> void:
@@ -147,6 +161,32 @@ func _on_state(state: int) -> void:
 	_gameover.visible = state == 2
 	if state == 1:
 		_attract_high.text = "HIGH SCORE  %d" % rules.high_score
+	if state != 1:
+		_tilt_label.visible = false
+		_extra_label.visible = false
+		_pf_label.visible = false
+
+func _on_extra_balls(n: int) -> void:
+	_extra_label.text = "EXTRA BALL x%d" % n
+	_extra_label.visible = n > 0
+
+func _on_tilt_warning(level: int) -> void:
+	if level >= 2:
+		_tilt_label.text = "DANGER"
+	else:
+		_tilt_label.text = "WARNING"
+	_tilt_label.visible = true
+	var t := create_tween()
+	t.tween_property(_tilt_label, "modulate:a", 0.2, 0.15)
+	t.tween_property(_tilt_label, "modulate:a", 1.0, 0.15)
+
+func _on_playfield_mult(mult: int) -> void:
+	_pf_label.text = "PLAYFIELD x%d" % mult
+	_pf_label.visible = mult > 1
+
+func _on_serve() -> void:
+	_tilt_label.visible = false
+	_tilt_label.modulate.a = 1.0
 
 func _on_game_over(final_score: int, is_high: bool) -> void:
 	_gameover_score.text = str(final_score)

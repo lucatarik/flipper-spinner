@@ -17,6 +17,7 @@ const DARK := Color("#3a2c0c")
 @export var side := "left"
 
 var _pressed := false
+var disabled := false
 ## Unwrapped bat angle: `rotation` is read back wrapped to (-PI, PI], which made
 ## the right bat (rest 152 deg, active 208 deg) swing the long way round.
 var _angle := 0.0
@@ -99,9 +100,19 @@ func _add_cap(center: Vector2, radius: float, color: Color) -> void:
 	add_child(cap)
 
 func set_pressed(pressed: bool) -> void:
+	if disabled:
+		_pressed = false
+		return
 	if pressed and not _pressed:
 		_kicked.clear()
 	_pressed = pressed
+
+## Tilt kill-switch: while disabled the flipper ignores set_pressed and falls
+## back to its rest angle.
+func set_disabled(value: bool) -> void:
+	disabled = value
+	if value:
+		_pressed = false
 
 func is_pressed() -> bool:
 	return _pressed

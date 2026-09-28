@@ -13,6 +13,10 @@ signal state_changed(state: int)
 signal game_over(final_score: int, is_high_score: bool)
 signal request_spot_target()
 signal playfield_mult_changed(mult: int)
+signal extra_balls_changed(n: int)
+signal request_add_ball(count: int)
+signal tilt_warning(level: int)
+signal tilted_changed()
 
 enum State { ATTRACT, PLAYING, GAME_OVER }
 
@@ -22,6 +26,8 @@ const MULTIPLIER_MAX := 5
 const MODE_SECONDS := 30.0
 const MODE_COMPLETE_BONUS := 50000
 const MODE_HIT_BONUS := 10000
+const EXTRA_BALLS_MAX := 3
+const TILT_DECAY := 0.5
 
 const MODES := [
 	{"name": "WELL OF SOULS", "event": "bumper", "goal": 15},
@@ -40,17 +46,23 @@ var multiball: bool = false
 var high_score: int = 0
 
 var playfield_mult: int = 1
+var extra_balls: int = 0
+var tilted: bool = false
 
 var lanes: Array[bool] = [false, false, false]
 var targets_down: int = 0
 var bonus: int = 0
 
+var _free_spins_active: bool = false
+var _x2_timer: float = 0.0
 var _ball_save_active: bool = false
 var _ball_save_timer: float = 0.0
 var _mode_index: int = -1
 var _mode_active: bool = false
 var _mode_timer: float = 0.0
 var _mode_progress: int = 0
+var _tilt_meter: float = 0.0
+var _tilt_level: int = 0
 
 func start_game() -> void:
 	state = State.PLAYING
@@ -64,6 +76,13 @@ func start_game() -> void:
 	bonus = 0
 	targets_down = 0
 	lanes = [false, false, false]
+	extra_balls = 0
+	tilted = false
+	_tilt_meter = 0.0
+	_tilt_level = 0
+	_free_spins_active = false
+	_x2_timer = 0.0
+	playfield_mult = 1
 	_ball_save_active = false
 	_ball_save_timer = 0.0
 	_mode_index = -1
@@ -76,12 +95,20 @@ func start_game() -> void:
 	lanes_changed.emit(lanes.duplicate())
 	mode_changed.emit("", 0.0, 0, 0)
 	playfield_mult_changed.emit(playfield_mult)
+	extra_balls_changed.emit(extra_balls)
 	message.emit("BALL %d" % ball_number, 2.0)
 	request_serve_ball.emit()
 
 func tick(delta: float) -> void:
 	if state != State.PLAYING:
 		return
+	if _tilt_meter > 0.0:
+		_tilt_meter = maxf(_tilt_meter - TILT_DECAY * delta, 0.0)
+	if _x2_timer > 0.0:
+		_x2_timer -= delta
+		if _x2_timer <= 0.0:
+			_x2_timer = 0.0
+			_recompute_playfield_mult()
 	if _ball_save_active:
 		_ball_save_timer -= delta
 		if _ball_save_timer <= 0.0:
@@ -99,6 +126,8 @@ func tick(delta: float) -> void:
 
 func on_event(name: String, data: Dictionary = {}) -> void:
 	if state != State.PLAYING:
+		return
+	if tilted and name != "drain" and name != "ball_added":
 		return
 	match name:
 		"bumper":
@@ -135,6 +164,27 @@ func flip_lanes(direction: int) -> void:
 		lanes[j] = copy[i]
 	lanes_changed.emit(lanes.duplicate())
 
+func nudge() -> void:
+	if state != State.PLAYING or tilted:
+		return
+	_tilt_meter += 1.0
+	_update_tilt()
+
+func _update_tilt() -> void:
+	if _tilt_meter >= 2.0 and _tilt_level < 1:
+		_tilt_level = 1
+		tilt_warning.emit(1)
+		message.emit("WARNING", 2.0)
+	if _tilt_meter >= 3.0 and _tilt_level < 2:
+		_tilt_level = 2
+		tilt_warning.emit(2)
+		message.emit("DANGER", 2.0)
+	if _tilt_meter > 3.5 and not tilted:
+		_tilt_level = 3
+		tilted = true
+		tilted_changed.emit()
+		message.emit("TILT", 2.0)
+
 func _award(points: int) -> void:
 	score += points * playfield_mult
 	score_changed.emit(score)
@@ -144,6 +194,43 @@ func set_playfield_mult(m: int) -> void:
 		return
 	playfield_mult = m
 	playfield_mult_changed.emit(playfield_mult)
+
+## Table tells Rules whether the slot's free spins are running; Rules folds it
+## (together with the playfield x2 timer) into playfield_mult.
+func set_free_spins_active(active: bool) -> void:
+	if active == _free_spins_active:
+		return
+	_free_spins_active = active
+	_recompute_playfield_mult()
+
+func _recompute_playfield_mult() -> void:
+	var m := 1
+	if _free_spins_active:
+		m += 1
+	if _x2_timer > 0.0:
+		m += 1
+	set_playfield_mult(m)
+
+## C3: put `n` balls into play at the idol scoop (table spawns them). Also lights
+## multiball so a drain does not end the ball while a ball remains.
+func add_ball(n: int = 1) -> void:
+	if state != State.PLAYING or n <= 0:
+		return
+	request_add_ball.emit(n)
+	if not multiball:
+		multiball = true
+		message.emit("ADD-A-BALL", 2.0)
+
+func _lock_balls(n: int) -> void:
+	locks += n
+	if locks >= 3:
+		locks = 0
+		if not multiball:
+			multiball = true
+			message.emit("ETERNAL LIFE MULTIBALL", 3.0)
+			request_multiball.emit(2)
+	else:
+		message.emit("BALL LOCKED %d" % locks, 2.0)
 
 ## Additive slot extension: award slot points (already bet-scaled, NOT multiplied
 ## again by playfield_mult) and apply the slot line bonuses. Ignored unless PLAYING.
@@ -157,8 +244,9 @@ func apply_slot_result(res: Dictionary) -> void:
 	var bonuses: Dictionary = res.get("bonuses", {})
 	var save := float(bonuses.get("ball_save", 0.0))
 	if save > 0.0:
-		_ball_save_active = true
-		_ball_save_timer = max(_ball_save_timer, 0.0) + save
+		if not tilted:
+			_ball_save_active = true
+			_ball_save_timer = max(_ball_save_timer, 0.0) + save
 		message.emit("PHARAOH'S BLESSING", 2.0)
 	if bool(bonuses.get("light_lock", false)):
 		lock_lit = true
@@ -166,12 +254,38 @@ func apply_slot_result(res: Dictionary) -> void:
 	var add_mult := int(bonuses.get("add_multiplier", 0))
 	if add_mult > 0:
 		multiplier = min(multiplier + add_mult, MULTIPLIER_MAX)
+	var lock_add := int(bonuses.get("lock_balls", 0))
+	if lock_add > 0:
+		_lock_balls(lock_add)
+	var spots := int(bonuses.get("spot_targets", 0))
+	for _i in spots:
+		request_spot_target.emit()
 	if bool(bonuses.get("start_multiball", false)) and not multiball:
 		multiball = true
 		message.emit("ETERNAL LIFE MULTIBALL", 3.0)
 		request_multiball.emit(2)
-	if bool(bonuses.get("spot_target", false)):
-		request_spot_target.emit()
+	var gain_extra := int(bonuses.get("extra_balls", 0))
+	if gain_extra > 0:
+		extra_balls = mini(extra_balls + gain_extra, EXTRA_BALLS_MAX)
+		extra_balls_changed.emit(extra_balls)
+		message.emit("EXTRA BALL", 2.0)
+	var add_n := int(bonuses.get("add_balls", 0))
+	if add_n > 0:
+		add_ball(add_n)
+	var mode_time := float(bonuses.get("mode_time", 0.0))
+	if mode_time > 0.0 and _mode_active:
+		_mode_timer += mode_time
+		mode_changed.emit(_mode_name(), _mode_timer, _mode_progress, _mode_goal())
+	if bool(bonuses.get("start_mode", false)) and not _mode_active:
+		_start_next_mode()
+	var x2 := float(bonuses.get("playfield_x2_seconds", 0.0))
+	if x2 > 0.0:
+		_x2_timer = maxf(_x2_timer, 0.0) + x2
+		_recompute_playfield_mult()
+	var bonus_points := int(bonuses.get("bonus_points", 0))
+	if bonus_points > 0:
+		score += bonus_points
+		score_changed.emit(score)
 
 func _on_lane(index: int) -> void:
 	if index < 0 or index >= lanes.size():
@@ -225,7 +339,7 @@ func _on_plunger_exit() -> void:
 	_ball_save_timer = BALL_SAVE_SECONDS
 
 func _on_drain() -> void:
-	if _ball_save_active and not multiball:
+	if _ball_save_active and not multiball and not tilted:
 		_ball_save_active = false
 		_ball_save_timer = 0.0
 		balls_in_play -= 1
@@ -243,7 +357,8 @@ func _on_drain() -> void:
 		_end_of_ball()
 
 func _end_of_ball() -> void:
-	if bonus > 0:
+	var was_tilted := tilted
+	if not was_tilted and bonus > 0:
 		score += bonus * multiplier
 		score_changed.emit(score)
 		message.emit("BONUS %d x%d" % [bonus, multiplier], 2.0)
@@ -251,6 +366,16 @@ func _end_of_ball() -> void:
 	multiplier = 1
 	_ball_save_active = false
 	_ball_save_timer = 0.0
+	if was_tilted:
+		tilted = false
+		_tilt_meter = 0.0
+		_tilt_level = 0
+	if not was_tilted and extra_balls > 0:
+		extra_balls -= 1
+		extra_balls_changed.emit(extra_balls)
+		message.emit("SHOOT AGAIN", 2.0)
+		request_serve_ball.emit()
+		return
 	ball_number += 1
 	if ball_number > BALLS_PER_GAME:
 		_game_over()

@@ -24,6 +24,10 @@ func _run() -> void:
 	var r13: bool = await _scenario_restart()
 	var r14: bool = await _scenario_slot_cycles()
 	var r15: bool = await _scenario_slot_forced_win()
+	var r16: bool = await _scenario_new_bumpers()
+	var r17: bool = await _scenario_nudge_up()
+	var r18: bool = await _scenario_tilt_flipper()
+	var r19: bool = await _scenario_request_add_ball()
 	print("SMOKE: plunger launch reaches field: %s" % ("PASS" if r1 else "FAIL"))
 	print("SMOKE: fired flipper launches ball (vy < -800): %s" % ("PASS" if r2 else "FAIL"))
 	print("SMOKE: idle-flipper ball drains: %s" % ("PASS" if r3 else "FAIL"))
@@ -39,7 +43,11 @@ func _run() -> void:
 	print("SMOKE: game over then start restarts: %s" % ("PASS" if r13 else "FAIL"))
 	print("SMOKE: slot completes >=3 cycles in 15s: %s" % ("PASS" if r14 else "FAIL"))
 	print("SMOKE: forced winning grid raises score: %s" % ("PASS" if r15 else "FAIL"))
-	var results := [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15]
+	print("SMOKE: each new bumper kicks a ball + fires event: %s" % ("PASS" if r16 else "FAIL"))
+	print("SMOKE: nudge_up raises a resting ball: %s" % ("PASS" if r17 else "FAIL"))
+	print("SMOKE: tilted flipper does not move: %s" % ("PASS" if r18 else "FAIL"))
+	print("SMOKE: request_add_ball(1) adds one ball: %s" % ("PASS" if r19 else "FAIL"))
+	var results := [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18, r19]
 	var failed := 0
 	for r in results:
 		if not r:
@@ -352,6 +360,88 @@ func _scenario_slot_cycles() -> bool:
 	t.queue_free()
 	await physics_frame
 	return cycles[0] >= 3
+
+func _scenario_new_bumpers() -> bool:
+	var t = await _new_table()
+	t.rules.start_game()
+	await physics_frame
+	var all_ok := true
+	for b in t.new_bumpers:
+		var fired: Array = [0]
+		var cb := func(): fired[0] += 1
+		b.hit.connect(cb)
+		var approach: Vector2 = b.get_meta("approach")
+		for other in t.get_tree().get_nodes_in_group("balls"):
+			other.queue_free()
+		await physics_frame
+		var start: Vector2 = b.position + approach * 90.0
+		var ball = t.spawn_ball(start, -approach * 900.0)
+		t.rules.on_event("ball_added")
+		var kicked := false
+		for i in 120:
+			await physics_frame
+			if fired[0] > 0:
+				kicked = true
+				break
+		if not kicked:
+			all_ok = false
+		if is_instance_valid(ball):
+			ball.queue_free()
+		await physics_frame
+		b.hit.disconnect(cb)
+	t.queue_free()
+	await physics_frame
+	return all_ok
+
+func _scenario_nudge_up() -> bool:
+	var t = await _new_table()
+	t.rules.start_game()
+	await physics_frame
+	var b = t.spawn_ball(Vector2(360, 900), Vector2.ZERO)
+	t.rules.on_event("ball_added")
+	for i in 60:
+		await physics_frame
+	var before: float = b.linear_velocity.y
+	t._do_nudge(Vector2(0.0, -1.0))
+	# the impulse is applied immediately; compare before gravity eats it back
+	var raised: bool = b.linear_velocity.y < before - 150.0
+	t.queue_free()
+	await physics_frame
+	return raised
+
+func _scenario_tilt_flipper() -> bool:
+	var t = await _new_table()
+	t.rules.start_game()
+	await physics_frame
+	t.rules.tilted = true
+	t.left_flipper.set_disabled(true)
+	var before: float = t.left_flipper._angle
+	t.left_flipper.set_pressed(true)
+	for i in 60:
+		await physics_frame
+	var moved: bool = absf(t.left_flipper._angle - before) > 0.05
+	var still_pressed: bool = t.left_flipper.is_pressed()
+	t.queue_free()
+	await physics_frame
+	return not moved and not still_pressed
+
+func _scenario_request_add_ball() -> bool:
+	var t = await _new_table()
+	t.rules.start_game()
+	await physics_frame
+	t.rules.on_event("ball_added")
+	var before: int = t.get_tree().get_nodes_in_group("balls").size()
+	t.rules.request_add_ball.emit(1)
+	var added := false
+	for i in 480:
+		await physics_frame
+		var n: int = t.get_tree().get_nodes_in_group("balls").size()
+		if n >= before + 1:
+			added = true
+			break
+	t.queue_free()
+	await physics_frame
+	return added
 
 func _scenario_slot_forced_win() -> bool:
 	var t = await _new_table()

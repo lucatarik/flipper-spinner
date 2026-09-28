@@ -284,6 +284,18 @@ def main():
     )
     sounds["bet_up"] = sine((500, 1000), 0.22, amp=0.35, decay=10.0)
 
+    # --- table nudge / tilt (synthesised at the end so the RNG draws used by
+    # the existing effects are unchanged) ----------------------------------
+    sounds["nudge"] = mix(
+        sine((150, 70), 0.16, amp=0.5, decay=22.0),
+        noise(0.08, amp=0.35, decay=40.0, lp=0.12),
+    )
+    sounds["tilt"] = mix(
+        square(110, 0.55, amp=0.28, decay=3.5),
+        square(73, 0.55, amp=0.22, decay=3.5),
+        noise(0.12, amp=0.2, decay=25.0, lp=0.3),
+    )
+
     # --- fallback theme (runtime music uses the CC0 OGG tracks) -----------
     theme = []
     bass = [0, 0, -5, -5, 3, 3, 2, 2]

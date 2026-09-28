@@ -78,6 +78,7 @@ var _win_line_layer: Node2D
 var _count_label: Label
 var _free_label: Label
 var _big_label: Label
+var _bonus_label: Label
 var _reveal_label: Label
 var _coins: CPUParticles2D
 var _book_node: Node2D
@@ -169,6 +170,7 @@ func _clear_win() -> void:
 	_big_win = false
 	_expanded = []
 	_big_label.visible = false
+	_bonus_label.visible = false
 	_reveal_label.visible = false
 	_win_line_layer.visible = false
 	_drawn_line = -1
@@ -284,6 +286,22 @@ func _begin_show_win() -> void:
 			_coins.emitting = true
 		else:
 			_play("win_small")
+	_show_bonus_banner()
+
+## C2: show the pinball bonus names won by this spin as the slot's win banner
+## with a distinct sound and a frame flash.
+func _show_bonus_banner() -> void:
+	var bonuses: Dictionary = _win_result.get("bonuses", {})
+	var names: Array = bonuses.get("names", [])
+	if names.is_empty():
+		return
+	var parts: Array = []
+	for n in names:
+		parts.append("%s!" % String(n))
+	_bonus_label.text = "  ".join(parts)
+	_bonus_label.visible = true
+	_flash_reel_frame()
+	_play("win_big")
 
 func _update_show_win(delta: float) -> void:
 	_win_elapsed += delta
@@ -601,6 +619,13 @@ func _build_labels() -> void:
 	_free_label.size.x = WINDOW.size.x
 	_free_label.visible = false
 	add_child(_free_label)
+
+	_bonus_label = _make_label("", 30, Color("#ffe066"))
+	_bonus_label.position = Vector2(WINDOW.position.x - 40.0, WINDOW.position.y + WINDOW.size.y + 78.0)
+	_bonus_label.size.x = WINDOW.size.x + 80.0
+	_bonus_label.visible = false
+	_bonus_label.z_index = 12
+	add_child(_bonus_label)
 
 	_big_label = _make_label("BIG WIN!", 54, Color("#ffe066"))
 	_big_label.position = Vector2(WINDOW.position.x, WINDOW.position.y + 40.0)

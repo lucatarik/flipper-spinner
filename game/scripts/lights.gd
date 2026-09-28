@@ -16,6 +16,8 @@ var _shield: Polygon2D
 var _shield_on := false
 var _flicker := 0.0
 var _time := 0.0
+var _tilt := false
+var _tilt_label: Label
 
 var _lanes: Array = []
 var _targets: Array = []
@@ -94,6 +96,24 @@ func set_ball_save(on: bool) -> void:
 	_shield_on = on
 	_shield.modulate.a = 0.0 if not on else 1.0
 
+func set_tilt(on: bool) -> void:
+	_tilt = on
+	if on and _tilt_label == null:
+		_tilt_label = Label.new()
+		_tilt_label.text = "TILT"
+		_tilt_label.position = Vector2(0.0, 470.0)
+		_tilt_label.size.x = 720.0
+		_tilt_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_tilt_label.add_theme_font_size_override("font_size", 72)
+		_tilt_label.add_theme_color_override("font_color", Color("#ff4040"))
+		_tilt_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.9))
+		_tilt_label.add_theme_constant_override("shadow_offset_x", 3)
+		_tilt_label.add_theme_constant_override("shadow_offset_y", 3)
+		_tilt_label.z_index = 60
+		add_child(_tilt_label)
+	if not on and _tilt_label:
+		_tilt_label.visible = false
+
 func flash() -> void:
 	_flash.color = Color(1.0, 1.0, 1.0, 0.6)
 	var t := create_tween()
@@ -114,6 +134,12 @@ func shake(strength := 9.0, dur := 0.35) -> void:
 
 func _process(delta: float) -> void:
 	_time += delta
+	if _tilt:
+		var gi := DIM * (0.55 + 0.15 * sin(_time * 4.0))
+		_modulate.color = Color(gi, gi, gi)
+		if _tilt_label:
+			_tilt_label.visible = sin(_time * 8.0) > 0.0
+		return
 	if _flicker > 0.0:
 		_flicker = max(_flicker - delta, 0.0)
 		var f := 0.72 - 0.35 * _flicker * (0.5 + 0.5 * sin(_time * 60.0))

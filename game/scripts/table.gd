@@ -9,6 +9,7 @@ const BallScene = preload("res://scenes/ball.tscn")
 const FlipperScript = preload("res://scripts/flipper.gd")
 const PlungerScript = preload("res://scripts/plunger.gd")
 const BumperScript = preload("res://scripts/bumper.gd")
+const SideBumperScript = preload("res://scripts/side_bumper.gd")
 const SlingshotScript = preload("res://scripts/slingshot.gd")
 const ScoopScript = preload("res://scripts/scoop.gd")
 const BankScript = preload("res://scripts/drop_target_bank.gd")
@@ -37,6 +38,11 @@ const LANE_FLOOR_Y := 1175.0
 const SERVE_POS := Vector2(674.0, 1135.0)
 
 const BUMPER_POSITIONS := [Vector2(240, 430), Vector2(420, 430), Vector2(330, 525)]
+const POP_BUMPER_POSITIONS := [Vector2(150, 330), Vector2(510, 330)]
+const SIDE_BUMPERS := [
+	{"pos": Vector2(20, 860), "normal": Vector2.RIGHT},
+	{"pos": Vector2(634, 820), "normal": Vector2.LEFT},
+]
 const FLIPPER_LEFT_PIVOT := Vector2(214, 1110)
 const FLIPPER_RIGHT_PIVOT := Vector2(440, 1110)
 const PLUNGER_POS := Vector2(674, 1150)
@@ -70,17 +76,23 @@ var target_bank
 var orbit
 var lane_sensors: Array = []
 var slot
+var pop_bumpers: Array = []
+var side_bumpers: Array = []
+var new_bumpers: Array = []
 
 var _walls: StaticBody2D
 var _drain_area: Area2D
 var _was_charging := false
 var _left_down := false
 var _right_down := false
+var _touch_count := 0
 var _stuck := {}
 var _high_score := 0
 
 var _mb_queue := 0
 var _mb_timer := 0.0
+var _add_queue := 0
+var _add_timer := 0.0
 var _ball_save_time := 0.0
 var _music_track := ""
 var _sfx: Node = null
@@ -132,7 +144,9 @@ func _connect_rules() -> void:
 	rules.lanes_changed.connect(_on_lanes_changed)
 	rules.mode_changed.connect(_on_mode_changed)
 	rules.request_spot_target.connect(_on_request_spot_target)
+	rules.request_add_ball.connect(_on_request_add_ball)
 	rules.playfield_mult_changed.connect(_on_playfield_mult_changed)
+	rules.tilted_changed.connect(_on_tilted)
 	rules.state_changed.connect(_on_state_changed)
 
 func _physics_process(delta: float) -> void:
@@ -142,14 +156,22 @@ func _physics_process(delta: float) -> void:
 		_sfx_play("game_start")
 		rules.start_game()
 
-	var left := Input.is_action_pressed("flip_left")
+	if Input.is_action_just_pressed("nudge_left"):
+		_do_nudge(Vector2(1.0, 0.0))
+	if Input.is_action_just_pressed("nudge_right"):
+		_do_nudge(Vector2(-1.0, 0.0))
+	if Input.is_action_just_pressed("nudge_up"):
+		_do_nudge(Vector2(0.0, -1.0))
+
+	var dead: bool = rules.tilted
+	var left := Input.is_action_pressed("flip_left") and not dead
 	if left != _left_down:
 		_left_down = left
 		left_flipper.set_pressed(left)
 		if left:
 			_sfx_play("flipper")
 			rules.flip_lanes(-1)
-	var right := Input.is_action_pressed("flip_right")
+	var right := Input.is_action_pressed("flip_right") and not dead
 	if right != _right_down:
 		_right_down = right
 		right_flipper.set_pressed(right)
@@ -168,12 +190,18 @@ func _physics_process(delta: float) -> void:
 			_sfx_play("launch", 0.6 + 0.6 * release_charge)
 
 	_update_multiball(delta)
+	_update_add_ball(delta)
 	_update_ball_save(delta)
 	_update_music()
 	_check_balls(delta)
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
+		if event.pressed:
+			_touch_count += 1
+			if _touch_count >= 2:
+				_do_nudge(Vector2(0.0, -1.0))
+				return
 		var vp := get_viewport().get_visible_rect().size
 		var p: Vector2 = event.position / vp * Vector2(720, 1280)
 		if event.pressed:
@@ -187,6 +215,23 @@ func _input(event: InputEvent) -> void:
 			plunger.set_charging(false)
 			left_flipper.set_pressed(false)
 			right_flipper.set_pressed(false)
+			_touch_count = 0
+
+## C4: table nudge. Rules decides whether the meter tolerates it; the table then
+## shoves every ball in play, shakes and plays the thump.
+func _do_nudge(dir: Vector2) -> void:
+	rules.nudge()
+	if rules.tilted:
+		return
+	_sfx_play("nudge")
+	for ball in get_tree().get_nodes_in_group("balls"):
+		if not is_instance_valid(ball):
+			continue
+		var imp := dir.normalized() * (260.0 if dir.y < 0.0 else 180.0)
+		imp += Vector2(randf_range(-40.0, 40.0), randf_range(-40.0, 40.0))
+		ball.linear_velocity += imp
+	if lights:
+		lights.shake(6.0, 0.15)
 
 func spawn_ball(pos: Vector2, vel := Vector2.ZERO) -> RigidBody2D:
 	var ball := BallScene.instantiate()
@@ -196,6 +241,12 @@ func spawn_ball(pos: Vector2, vel := Vector2.ZERO) -> RigidBody2D:
 	return ball
 
 func _on_request_serve_ball() -> void:
+	if left_flipper:
+		left_flipper.set_disabled(false)
+	if right_flipper:
+		right_flipper.set_disabled(false)
+	if lights:
+		lights.set_tilt(false)
 	spawn_ball(SERVE_POS, Vector2.ZERO)
 	rules.on_event("ball_added")
 
@@ -216,6 +267,7 @@ func _spawn_from_scoop() -> void:
 	var ang := deg_to_rad(randf_range(15.0, 30.0))
 	var dir := Vector2(-sin(ang), cos(ang))
 	var b := spawn_ball(SCOOP_POS + Vector2(0, 40), dir * 900.0)
+	b.set_meta("spawn_grace", 1)
 	b.linear_velocity += Vector2(randf_range(-60.0, 60.0), 0.0)
 	rules.on_event("ball_added")
 
@@ -338,7 +390,7 @@ func _check_balls(delta: float) -> void:
 			_drain_ball(ball)
 			continue
 		var id := ball.get_instance_id()
-		var in_lane: bool = p.x > 640.0 and p.y > 400.0
+		var in_lane: bool = in_lane_for_ball(ball)
 		if in_lane:
 			ball.set_meta("was_in_lane", true)
 		elif ball.get_meta("was_in_lane", false) and not ball.get_meta("left_lane", false):
@@ -353,9 +405,18 @@ func _check_balls(delta: float) -> void:
 				var nudge := Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0))
 				if nudge.length() < 0.01:
 					nudge = Vector2(0.0, -1.0)
-				ball.apply_central_impulse(nudge.normalized() * 400.0)
+				ball.linear_velocity += nudge.normalized() * 400.0
 		else:
 			_stuck[id] = 0.0
+
+## Freshly spawned balls start at the idol scoop: keep the shooter-lane rules
+## (plunger_exit / stuck detection) off them until they physically cross into the
+## lane, otherwise a new ball at x≈360 would be treated as "was in lane".
+func in_lane_for_ball(ball: Node) -> bool:
+	if ball.get_meta("spawn_grace", 0) == 1:
+		return false
+	var p: Vector2 = ball.global_position
+	return p.x > 640.0 and p.y > 400.0
 
 func _drain_ball(ball: Node) -> void:
 	if not is_instance_valid(ball) or ball.get_meta("drained", false):
@@ -454,13 +515,33 @@ func _add_polygon(poly: PackedVector2Array) -> void:
 
 func _build_bumpers() -> void:
 	for pos in BUMPER_POSITIONS:
-		var b := BumperScript.new()
-		b.position = pos
-		add_child(b)
-		b.hit.connect(_on_bumper_hit)
-		var spr := _add_sprite(TEX_BUMPER, Vector2.ZERO, 64.0 / float(TEX_BUMPER.get_width()))
-		spr.reparent(b)
-		spr.position = Vector2.ZERO
+		_add_pop_bumper(pos, 30.0, 64.0, Vector2(0.0, -1.0), false)
+	for pos in POP_BUMPER_POSITIONS:
+		_add_pop_bumper(pos, 26.0, 56.0, Vector2(0.0, -1.0), true)
+	for cfg in SIDE_BUMPERS:
+		var sb := SideBumperScript.new()
+		sb.radius = 22.0
+		sb.normal = cfg["normal"]
+		sb.position = cfg["pos"]
+		sb.set_meta("approach", cfg["normal"])
+		add_child(sb)
+		sb.hit.connect(_on_bumper_hit)
+		side_bumpers.append(sb)
+		new_bumpers.append(sb)
+
+func _add_pop_bumper(pos: Vector2, radius: float, tex_px: float, approach: Vector2, is_new: bool) -> void:
+	var b := BumperScript.new()
+	b.radius = radius
+	b.position = pos
+	b.set_meta("approach", approach)
+	add_child(b)
+	b.hit.connect(_on_bumper_hit)
+	pop_bumpers.append(b)
+	var spr := _add_sprite(TEX_BUMPER, Vector2.ZERO, tex_px / float(TEX_BUMPER.get_width()))
+	spr.reparent(b)
+	spr.position = Vector2.ZERO
+	if is_new:
+		new_bumpers.append(b)
 
 func _build_slingshots() -> void:
 	var left_poly := PackedVector2Array(SLING_LEFT_POLY)
@@ -558,9 +639,40 @@ func _on_request_spot_target() -> void:
 		_refresh_target_lights()
 		_sfx_play("target_bank")
 
+func _on_request_add_ball(count: int) -> void:
+	_add_queue += count
+	_add_timer = 0.0
+
+func _update_add_ball(delta: float) -> void:
+	if _add_queue <= 0:
+		return
+	_add_timer -= delta
+	if _add_timer <= 0.0:
+		_add_timer = 0.4
+		_add_queue -= 1
+		_spawn_from_scoop()
+
 func _on_playfield_mult_changed(mult: int) -> void:
 	_sfx_play("mode_start")
 	_on_rules_message("PLAYFIELD x%d" % mult, 0.0)
+
+func _on_tilted() -> void:
+	_sfx_play("tilt")
+	if left_flipper:
+		left_flipper.set_pressed(false)
+	if right_flipper:
+		right_flipper.set_pressed(false)
+	if left_flipper:
+		left_flipper.set_disabled(true)
+	if right_flipper:
+		right_flipper.set_disabled(true)
+	_left_down = false
+	_right_down = false
+	if lights:
+		lights.gi_flicker()
+		lights.set_tilt(true)
+		lights.shake(10.0, 0.5)
+	_update_music()
 
 func _on_state_changed(state: int) -> void:
 	if slot:
@@ -573,13 +685,13 @@ func _on_slot_cycle_finished(result: Dictionary) -> void:
 	var bonuses: Dictionary = result.get("bonuses", {})
 	if float(bonuses.get("ball_save", 0.0)) > 0.0:
 		_ball_save_time = max(_ball_save_time, float(bonuses.get("ball_save", 0.0)))
-	if lights and bool(bonuses.get("start_multiball", false)):
+	if lights and (bool(bonuses.get("start_multiball", false)) or int(bonuses.get("extra_balls", 0)) > 0):
 		lights.flash()
 		lights.shake()
 
 func _on_slot_free_spins(active: bool) -> void:
 	if rules:
-		rules.set_playfield_mult(2 if active else 1)
+		rules.set_free_spins_active(active)
 	if active and lights:
 		lights.flash()
 	_update_music()

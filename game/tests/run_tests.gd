@@ -30,6 +30,15 @@ func _initialize() -> void:
 	run("slot bonuses mapping", test_slot_bonuses)
 	run("slot bet energy + reset", test_slot_bet_energy)
 	run("rules playfield_mult + apply_slot_result", test_rules_playfield_mult)
+	run("slice: bonus table every trio (3 and 4+)", test_slot_trio_table)
+	run("slice: multiple bonuses, cap, names", test_slot_trio_extras)
+	run("rules: extra ball / shoot again", test_rules_extra_ball)
+	run("rules: add-a-ball", test_rules_add_ball)
+	run("rules: lock_balls -> multiball", test_rules_lock_balls)
+	run("rules: playfield x2 timer + x3 stack", test_rules_x2_timer)
+	run("rules: mode_time / start_mode", test_rules_mode_time)
+	run("rules: tilt warning / ignore / no bonus", test_rules_tilt)
+	run("rules: nudge ignored outside PLAYING", test_rules_nudge_attract)
 	run("slot 20000-spin target math", test_slot_target_math)
 	print("----------------------------------------")
 	print("SUMMARY: %d passed, %d failed" % [passed, failed])
@@ -421,6 +430,31 @@ func test_slot_expanding() -> void:
 	var res3: Dictionary = slot.evaluate(grid)
 	expect(res3["expanded_reels"].is_empty(), "no expansion outside free spins")
 
+func _trio_grid(sym: String, count: int) -> Array:
+	var names: Array = []
+	for i in count:
+		names.append(sym)
+	var filler := "eye" if sym != "eye" else "ankh"
+	for i in 5 - count:
+		names.append(filler)
+	return _line_grid(names)
+
+func _line_grid(names: Array) -> Array:
+	# Puts `names` on the middle row (a full-row payline). The other rows use a
+	# per-reel rotating sequence of symbols that differ from `names` so no other
+	# payline accidentally forms a run.
+	var all := ["eye", "ankh", "pyramid", "feather", "emerald"]
+	var fill: Array = []
+	for s in all:
+		if s != names[0]:
+			fill.append(s)
+	var grid: Array = []
+	for r in SlotMachineScript.REELS:
+		var top: String = fill[r % fill.size()]
+		var bot: String = fill[(r + 1) % fill.size()]
+		grid.append([top, names[r], bot])
+	return grid
+
 func test_slot_bonuses() -> void:
 	var slot = _slot()
 	var res: Dictionary = slot.evaluate(_g([
@@ -446,16 +480,96 @@ func test_slot_bonuses() -> void:
 		"emerald", "scarab", "book",
 		"eye", "eye", "ankh",
 		"pyramid", "eye", "feather"]))
-	expect(bool(res3["bonuses"]["spot_target"]), "3 scarab -> spot target")
-	# explorer 3 -> +1 multiplier, 4 -> multiball
+	expect(int(res3["bonuses"]["spot_targets"]) == 1, "3 scarab -> spot 1 target")
+	# explorer 3 -> extra ball, 4 -> multiball
 	var res4: Dictionary = slot.evaluate(_g([
 		"eye", "explorer", "ankh",
 		"pyramid", "explorer", "feather",
 		"emerald", "explorer", "book",
 		"eye", "explorer", "ankh",
 		"pyramid", "eye", "feather"]))
-	expect(int(res4["bonuses"]["add_multiplier"]) == 1, "explorer line -> +1 multiplier")
 	expect(bool(res4["bonuses"]["start_multiball"]), "4 explorers -> multiball")
+	var res4b: Dictionary = slot.evaluate(_g([
+		"eye", "explorer", "ankh",
+		"pyramid", "explorer", "feather",
+		"emerald", "explorer", "book",
+		"eye", "eye", "ankh",
+		"pyramid", "eye", "feather"]))
+	expect(int(res4b["bonuses"]["extra_balls"]) == 1, "3 explorers -> extra ball")
+
+func test_slot_trio_table() -> void:
+	var slot = _slot()
+	# every C2 row: 3-of-a-kind then 4-of-a-kind
+	var cases := [
+		["explorer", 1, "extra_balls", "start_multiball"],
+		["pharaoh", 10.0, "ball_save", "ball_save"],
+		["anubis", true, "light_lock", "lock_balls"],
+		["scarab", 1, "spot_targets", "spot_targets"],
+		["eye", 1, "add_multiplier", "add_multiplier"],
+		["ankh", 1, "add_balls", "add_balls"],
+		["pyramid", 10.0, "mode_time", "mode_time"],
+		["feather", 20.0, "playfield_x2_seconds", "playfield_x2_seconds"],
+		["emerald", 25000, "bonus_points", "bonus_points"],
+	]
+	for case in cases:
+		var sym: String = case[0]
+		var three_val = case[1]
+		var key3: String = case[2]
+		var key4: String = case[3]
+		var r3: Dictionary = slot.evaluate(_trio_grid(sym, 3))
+		var b3: Dictionary = r3["bonuses"]
+		expect(b3[key3] == three_val or (typeof(b3[key3]) == TYPE_FLOAT and float(b3[key3]) == float(three_val)),
+			"%s 3-of-a-kind -> %s (%s vs %s)" % [sym, key3, b3[key3], three_val])
+		var r4: Dictionary = slot.evaluate(_trio_grid(sym, 4))
+		var b4: Dictionary = r4["bonuses"]
+		var four_val = b4[key4]
+		match sym:
+			"pharaoh":
+				expect(float(four_val) == 20.0, "4 pharaoh -> ball save 20s")
+			"anubis":
+				expect(int(four_val) == 1, "4 anubis -> lock 1 ball")
+			"scarab":
+				expect(int(four_val) == 2, "4 scarab -> spot 2 targets")
+			"eye":
+				expect(int(four_val) == 2, "4 eye -> +2 multiplier")
+			"ankh":
+				expect(int(four_val) == 2, "4 ankh -> add 2 balls")
+			"feather":
+				expect(float(four_val) == 40.0, "4 feather -> x2 for 40s")
+			"pyramid":
+				expect(float(four_val) == 10.0 and int(b4["bonus_points"]) == 25000, "4 pyramid -> +25000")
+			"emerald":
+				expect(int(four_val) == 100000, "4 emerald -> 100000")
+			"explorer":
+				expect(bool(b4["start_multiball"]), "4 explorer -> multiball")
+
+func test_slot_trio_extras() -> void:
+	var slot = _slot()
+	# row0 = explorer trio, row1 = ankh trio, row2 = pharaoh 4-of-a-kind
+	var grid: Array = [
+		["explorer", "ankh", "pharaoh"],
+		["explorer", "ankh", "pharaoh"],
+		["explorer", "ankh", "pharaoh"],
+		["eye", "eye", "pharaoh"],
+		["eye", "eye", "emerald"],
+	]
+	var res: Dictionary = slot.evaluate(grid)
+	var b: Dictionary = res["bonuses"]
+	expect(int(b["extra_balls"]) == 1, "extra ball from explorer trio")
+	expect(int(b["add_balls"]) == 1, "ankh trio adds a ball")
+	expect(float(b["ball_save"]) == 20.0, "pharaoh 4-of-a-kind -> 20s ball save")
+	var names: Array = b["names"]
+	expect(names.size() >= 3, "names lists every triggered bonus")
+	expect("EXTRA BALL" in names, "names contains EXTRA BALL")
+	expect("ADD-A-BALL" in names, "names contains ADD-A-BALL")
+	# book-filled line of pure books counts as an explorer line (5 -> multiball)
+	var books: Dictionary = slot.evaluate(_line_grid(["book", "book", "book", "book", "book"]))
+	expect(bool(books["bonuses"]["start_multiball"]), "5 books line counts as explorer")
+	var nbooks: Array = books["bonuses"]["names"]
+	expect("ETERNAL LIFE MULTIBALL" in nbooks, "books line names multiball")
+	# 3 books as scatter still trigger free spins, and count as a 3-explorer trio
+	var b3: Dictionary = slot.evaluate(_line_grid(["book", "book", "book", "eye", "ankh"]))
+	expect(int(b3["free_spins_awarded"]) == 10, "3 books still scatter -> 10 free spins")
 
 func test_slot_bet_energy() -> void:
 	var slot = _slot()
@@ -492,21 +606,165 @@ func test_rules_playfield_mult() -> void:
 	r2.on_event("ball_added")
 	var base2: int = r2.score
 	r2.apply_slot_result({"points": 12345, "bonuses": {
-		"ball_save": 10.0, "light_lock": true, "spot_target": true,
+		"ball_save": 10.0, "light_lock": true, "spot_targets": 1,
 		"add_multiplier": 1, "start_multiball": false}})
 	expect(r2.score - base2 == 12345, "slot points not multiplied by playfield_mult")
 	expect(r2.lock_lit, "light_lock applied")
 	expect(r2.multiplier == 2, "add_multiplier applied")
 	var spotted: Array = [0]
 	r2.request_spot_target.connect(func(): spotted[0] += 1)
-	r2.apply_slot_result({"points": 0, "bonuses": {"spot_target": true}})
-	expect(spotted[0] == 1, "spot_target emits request_spot_target")
+	r2.apply_slot_result({"points": 0, "bonuses": {"spot_targets": 1}})
+	expect(spotted[0] == 1, "spot_targets emits request_spot_target")
 	var mbs: Array = [0]
 	r2.request_multiball.connect(func(_n): mbs[0] += 1)
 	r2.apply_slot_result({"points": 0, "bonuses": {"start_multiball": true}})
 	expect(r2.multiball, "start_multiball sets multiball")
 	expect(mbs[0] == 1, "start_multiball requests 2 balls")
 	expect(r2.playfield_mult == 1, "slot points did not change playfield_mult")
+
+func test_rules_extra_ball() -> void:
+	var r = _new_started()
+	r.on_event("ball_added")
+	r.apply_slot_result({"points": 0, "bonuses": {"extra_balls": 1}})
+	expect(r.extra_balls == 1, "extra ball granted")
+	var changed: Array = []
+	var serves: Array = [0]
+	r.extra_balls_changed.connect(func(n): changed.append(n))
+	r.request_serve_ball.connect(func(): serves[0] += 1)
+	r.bonus = 1000
+	var pre: int = r.score
+	r.on_event("drain")
+	expect(r.extra_balls == 0, "extra ball consumed")
+	expect(r.ball_number == 1, "ball number does not advance on shoot again")
+	expect(serves[0] == 1, "serve requested for shoot again")
+	expect(r.score == pre + 1000, "bonus still scored on shoot again")
+	expect(not changed.is_empty() and changed[-1] == 0, "extra_balls_changed emitted")
+	# cap at 3
+	var r2 = _new_started()
+	for i in 5:
+		r2.apply_slot_result({"points": 0, "bonuses": {"extra_balls": 2}})
+	expect(r2.extra_balls == 3, "extra balls capped at 3")
+
+func test_rules_add_ball() -> void:
+	var r = _new_started()
+	var reqs: Array = []
+	r.request_add_ball.connect(func(n): reqs.append(n))
+	r.apply_slot_result({"points": 0, "bonuses": {"add_balls": 2}})
+	expect(reqs == [2], "request_add_ball(2)")
+	expect(r.multiball, "add_ball lights multiball")
+	r.on_event("ball_added")
+	r.on_event("ball_added")
+	r.on_event("ball_added")
+	expect(r.balls_in_play == 3, "3 balls in play")
+	r.on_event("drain")
+	expect(r.balls_in_play == 2 and r.multiball, "does not end ball while balls remain")
+	r.on_event("drain")
+	expect(not r.multiball, "multiball ends at <=1")
+	r.on_event("drain")
+	expect(r.ball_number == 2, "end of ball after add-a-ball multiball")
+
+func test_rules_lock_balls() -> void:
+	var r = _new_started()
+	var mbs: Array = []
+	r.request_multiball.connect(func(n): mbs.append(n))
+	r.apply_slot_result({"points": 0, "bonuses": {"lock_balls": 1}})
+	expect(r.locks == 1, "lock_balls increments locks")
+	r.apply_slot_result({"points": 0, "bonuses": {"lock_balls": 1}})
+	expect(r.locks == 2, "second lock")
+	r.apply_slot_result({"points": 0, "bonuses": {"lock_balls": 1}})
+	expect(r.locks == 0, "locks reset at 3")
+	expect(r.multiball, "3rd lock starts multiball")
+	expect(mbs == [2], "request_multiball(2)")
+
+func test_rules_x2_timer() -> void:
+	var r = _new_started()
+	r.set_free_spins_active(true)
+	expect(r.playfield_mult == 2, "free spins -> x2")
+	r.apply_slot_result({"points": 0, "bonuses": {"playfield_x2_seconds": 20.0}})
+	expect(r.playfield_mult == 3, "free spins + feather x2 -> x3 stack")
+	var base: int = r.score
+	r.on_event("bumper")
+	expect(r.score - base == 3000, "scoring uses x3")
+	r.set_free_spins_active(false)
+	expect(r.playfield_mult == 2, "feather timer alone -> x2")
+	r.tick(19.0)
+	expect(r.playfield_mult == 2, "timer still running at 19s")
+	r.tick(1.5)
+	expect(r.playfield_mult == 1, "timer expiry drops to x1")
+	# timer duration from 4+ feather
+	var r2 = _new_started()
+	r2.apply_slot_result({"points": 0, "bonuses": {"playfield_x2_seconds": 40.0}})
+	r2.tick(39.0)
+	expect(r2.playfield_mult == 2, "40s timer still active at 39s")
+	r2.tick(2.0)
+	expect(r2.playfield_mult == 1, "40s timer expires after 40s")
+
+func test_rules_mode_time() -> void:
+	var r = _new_started()
+	# no mode -> start_mode starts the next mode
+	r.apply_slot_result({"points": 0, "bonuses": {"mode_time": 10.0, "start_mode": true}})
+	expect(r._mode_active, "start_mode starts a mode")
+	expect(r._mode_index == 0, "first mode is WELL OF SOULS")
+	expect(is_equal_approx(r._mode_timer, 30.0), "start_mode does not add the 10s when starting")
+	# running mode -> +10s
+	var before: float = r._mode_timer
+	r.apply_slot_result({"points": 0, "bonuses": {"mode_time": 10.0, "start_mode": true}})
+	expect(is_equal_approx(r._mode_timer, before + 10.0), "mode_time extends a running mode")
+	# 4+ pyramid also awards 25000
+	var pre: int = r.score
+	r.apply_slot_result({"points": 0, "bonuses": {"mode_time": 10.0, "start_mode": false, "bonus_points": 25000}})
+	expect(r.score - pre == 25000, "pyramid 4+ bonus points")
+
+func test_rules_tilt() -> void:
+	var r = _new_started()
+	r.on_event("ball_added")
+	var warns: Array = []
+	r.tilt_warning.connect(func(l): warns.append(l))
+	var tilted_events: Array = [0]
+	r.tilted_changed.connect(func(): tilted_events[0] += 1)
+	r.nudge()
+	expect(warns.is_empty(), "one nudge -> no warning")
+	r.nudge()
+	expect(warns == [1], "meter 2 -> WARNING")
+	r.nudge()
+	expect(warns == [1, 2], "meter 3 -> DANGER")
+	r.nudge()
+	expect(r.tilted, "meter > 3.5 -> TILT")
+	expect(tilted_events[0] == 1, "tilted() emitted once")
+	# events ignored while tilted
+	var base: int = r.score
+	r.on_event("bumper")
+	r.on_event("orbit", {"side": "left"})
+	expect(r.score == base, "scoring ignored while tilted")
+	# no bonus scored at end of tilted ball
+	r.bonus = 5000
+	var pre: int = r.score
+	r.on_event("drain")
+	expect(r.score == pre, "no bonus on tilted ball")
+	expect(r.ball_number == 2, "ball advances after tilt")
+	expect(not r.tilted, "tilted cleared at end of ball")
+	# ball save does not work while tilted
+	var r2 = _new_started()
+	r2.on_event("ball_added")
+	r2.on_event("plunger_exit")
+	r2.tilted = true
+	r2._tilt_meter = 4.0
+	var pre2: int = r2.ball_number
+	r2.on_event("drain")
+	expect(r2.ball_number == pre2 + 1, "tilted drain ignores ball save")
+	# nudge meter decays in tick
+	var r3 = _new_started()
+	r3.nudge()
+	r3.nudge()
+	expect(r3._tilt_meter >= 2.0, "meter at 2")
+	r3.tick(1.0)
+	expect(r3._tilt_meter < 1.7, "meter decays 0.5/s")
+
+func test_rules_nudge_attract() -> void:
+	var r = RulesScript.new()
+	r.nudge()
+	expect(r._tilt_meter == 0.0, "nudge ignored in ATTRACT")
+	expect(not r.tilted, "no tilt in ATTRACT")
 
 func test_slot_target_math() -> void:
 	var rng := RandomNumberGenerator.new()

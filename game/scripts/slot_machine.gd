@@ -44,6 +44,12 @@ const PAYTABLE: Dictionary = {
 const SCATTER_CREDITS: Dictionary = {3: 20, 4: 200, 5: 2000}
 const FREE_SPINS_AWARD := 10
 const FREE_SPINS_RETRIGGER := 10
+## Order the C2 trio bonuses are reported in (matches the spec table).
+const BONUS_ORDER: Array[String] = [
+	"explorer", "pharaoh", "anubis", "scarab", "eye",
+	"ankh", "pyramid", "feather", "emerald",
+]
+
 ## minimum number of reels containing the special symbol for it to expand.
 const EXPAND_MIN: Dictionary = {
 	"explorer": 2, "pharaoh": 2, "anubis": 2, "scarab": 2,
@@ -158,28 +164,33 @@ func evaluate(grid: Array) -> Dictionary:
 	if books >= 3:
 		credits += int(SCATTER_CREDITS[min(books, 5)])
 
-	var bonuses := {
-		"ball_save": 0.0,
-		"light_lock": false,
-		"spot_target": false,
-		"add_multiplier": 0,
-		"start_multiball": false,
-	}
+	var best_counts := {}
 	for line in lines:
 		var sym: String = line["symbol"]
 		var count: int = line["count"]
 		if count >= 3:
-			match sym:
-				"pharaoh":
-					bonuses["ball_save"] = 10.0
-				"anubis":
-					bonuses["light_lock"] = true
-				"scarab":
-					bonuses["spot_target"] = true
-				"explorer":
-					bonuses["add_multiplier"] += 1
-		if sym == "explorer" and count >= 4:
-			bonuses["start_multiball"] = true
+			best_counts[sym] = max(int(best_counts.get(sym, 0)), count)
+
+	var bonuses := {
+		"ball_save": 0.0,
+		"light_lock": false,
+		"lock_balls": 0,
+		"spot_targets": 0,
+		"add_multiplier": 0,
+		"start_multiball": false,
+		"extra_balls": 0,
+		"add_balls": 0,
+		"mode_time": 0.0,
+		"start_mode": false,
+		"playfield_x2_seconds": 0.0,
+		"bonus_points": 0,
+		"names": [],
+	}
+	var names: Array = []
+	for sym in BONUS_ORDER:
+		if best_counts.has(sym):
+			_apply_bonus(bonuses, names, sym, int(best_counts[sym]))
+	bonuses["names"] = names
 
 	var awarded := 0
 	if books >= 3:
@@ -197,6 +208,54 @@ func evaluate(grid: Array) -> Dictionary:
 		"expanded_reels": expanded,
 		"bonuses": bonuses,
 	}
+
+## C2: one pinball bonus per group of 3+ identical symbols on a payline
+## (book substitutes; a line of pure books is an explorer line). `count` is the
+## best run length for `sym` in this spin.
+func _apply_bonus(bonuses: Dictionary, names: Array, sym: String, count: int) -> void:
+	var four := count >= 4
+	match sym:
+		"explorer":
+			if four:
+				bonuses["start_multiball"] = true
+				names.append("ETERNAL LIFE MULTIBALL")
+			else:
+				bonuses["extra_balls"] += 1
+				names.append("EXTRA BALL")
+		"pharaoh":
+			bonuses["ball_save"] = maxf(float(bonuses["ball_save"]), 20.0 if four else 10.0)
+			names.append("PHARAOH'S BLESSING")
+		"anubis":
+			if four:
+				bonuses["lock_balls"] += 1
+				names.append("BALL LOCKED")
+			else:
+				bonuses["light_lock"] = true
+				names.append("LOCK LIT")
+		"scarab":
+			bonuses["spot_targets"] += 2 if four else 1
+			names.append("SPOT 2 TARGETS" if four else "SPOT TARGET")
+		"eye":
+			bonuses["add_multiplier"] += 2 if four else 1
+			names.append("MULTIPLIER +2" if four else "MULTIPLIER +1")
+		"ankh":
+			bonuses["add_balls"] += 2 if four else 1
+			names.append("ADD 2 BALLS" if four else "ADD-A-BALL")
+		"pyramid":
+			bonuses["mode_time"] += 10.0
+			bonuses["start_mode"] = true
+			if four:
+				bonuses["bonus_points"] += 25000
+				names.append("MODE +10s +25000")
+			else:
+				names.append("MODE +10s")
+		"feather":
+			bonuses["playfield_x2_seconds"] += 40.0 if four else 20.0
+			names.append("PLAYFIELD x2 40s" if four else "PLAYFIELD x2")
+		"emerald":
+			var base := 100000 if four else 25000
+			bonuses["bonus_points"] += base * bet
+			names.append(str(base * bet))
 
 ## Applies a free-spin trigger. Called by the view/table after evaluate().
 func grant_free_spins(count: int) -> void:
