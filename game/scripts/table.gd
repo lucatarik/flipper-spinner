@@ -20,6 +20,7 @@ const SlotScene = preload("res://scenes/slot.tscn")
 const RampScript = preload("res://scripts/ramp.gd")
 const MiniBumperScript = preload("res://scripts/mini_bumper.gd")
 const KickbackHoleScript = preload("res://scripts/kickback_hole.gd")
+const SoftBonusScript = preload("res://scripts/floating_bonus.gd")
 
 const TEX_PLAYFIELD = preload("res://assets/playfield.jpg")
 const TEX_BUMPER = preload("res://assets/sprites/bumper.png")
@@ -47,8 +48,10 @@ const STUCK_NUDGE_SPEED := 350.0
 
 const BUMPER_POSITIONS := [Vector2(240, 430), Vector2(420, 430), Vector2(330, 495)]
 const POP_BUMPER_POSITIONS := [Vector2(150, 330), Vector2(510, 330)]
+## Left one raised 15px (860->845): balls sliding down the left wall were
+## catching on it (user report).
 const SIDE_BUMPERS := [
-	{"pos": Vector2(20, 860), "normal": Vector2.RIGHT},
+	{"pos": Vector2(20, 845), "normal": Vector2.RIGHT},
 	{"pos": Vector2(634, 820), "normal": Vector2.LEFT},
 ]
 const FLIPPER_LEFT_PIVOT := Vector2(214, 1110)
@@ -82,6 +85,25 @@ const MINI_BUMPERS := [
 ## "Vortex" sucker holes: open pits over the same non-colliding slot pit, clear of
 ## both mini-bumper tracks and the wing flippers (40+ px margin either way).
 const VORTEX_HOLES := [Vector2(335, 660), Vector2(250, 750)]
+
+## "Soft" bonus pickups: no collision (the ball rolls straight through), appear
+## one at a time at a random spot from this list, grant a small bonus on touch
+## or expire after a while. Spots are picked to stay clear of walls/bumpers/
+## targets/ramps (see docs/agent-work/pinball/spec.md Part G).
+const SOFT_BONUS_SPOTS := [
+	Vector2(270, 380), Vector2(450, 380),
+	Vector2(180, 700), Vector2(550, 700),
+	Vector2(400, 620),
+	Vector2(270, 950), Vector2(420, 950),
+]
+const SOFT_BONUS_MIN_DELAY := 7.0
+const SOFT_BONUS_MAX_DELAY := 14.0
+
+## TAB cheat: zoomed-in follow camera (not too close), V cheat: half gravity.
+const ZOOM_FOLLOW := Vector2(0.6, 0.6)
+const ZOOM_NORMAL := Vector2(1.0, 1.0)
+const CAMERA_FOLLOW_LERP := 6.0
+const GRAVITY_HALF_FACTOR := 0.5
 
 const SLING_LEFT_POLY := [Vector2(75, 880), Vector2(75, 990), Vector2(165, 1037)]
 const SLING_LEFT_KICK := Vector2(0.868, -0.497)
@@ -164,8 +186,16 @@ var _sfx: Node = null
 var _slot_ready := false
 var _slot_active := false
 
+var _ball_seq := 0
+var _cam_follow := false
+var _gravity_normal := 1400.0
+var _gravity_half := false
+var _soft_bonus: Node = null
+var _soft_bonus_timer := 4.0
+
 func _ready() -> void:
 	_sfx = get_node_or_null("/root/Sfx")
+	_gravity_normal = ProjectSettings.get_setting("physics/2d/default_gravity", 1400.0)
 	_high_score = HighScore.load_score(HS_PATH)
 	rules = RulesScript.new()
 	rules.high_score = _high_score
@@ -247,6 +277,12 @@ func _physics_process(delta: float) -> void:
 		rules.add_ball(1)
 	if Input.is_action_just_pressed("cheat_extra_ball"):
 		rules.cheat_add_extra_ball()
+	if Input.is_action_just_pressed("cheat_reset_ball"):
+		_cheat_reset_ball()
+	if Input.is_action_just_pressed("cheat_gravity"):
+		_toggle_gravity()
+	if Input.is_action_just_pressed("cheat_zoom_follow"):
+		_toggle_zoom_follow()
 
 	var dead: bool = rules.tilted
 	var left := Input.is_action_pressed("flip_left") and not dead
@@ -285,6 +321,8 @@ func _physics_process(delta: float) -> void:
 	_update_ball_save(delta)
 	_update_slot()
 	_update_music()
+	_update_soft_bonus(delta)
+	_update_camera_follow(delta)
 	_check_balls(delta)
 
 func _input(event: InputEvent) -> void:
@@ -337,11 +375,69 @@ func _do_nudge(dir: Vector2) -> void:
 	if lights:
 		lights.shake(6.0, 0.15)
 
+## Cheat (R): rescue every ball on the field right now (stuck-ball fix). Frees
+## the ball nodes directly (marked "drained" so `_check_balls` leaves them
+## alone this frame) without going through `_drain_ball`, so no drain event
+## fires and no life is lost; Rules then serves a fresh ball as usual.
+func _cheat_reset_ball() -> void:
+	for ball in get_tree().get_nodes_in_group("balls"):
+		if not is_instance_valid(ball):
+			continue
+		ball.set_meta("drained", true)
+		ball.queue_free()
+	_stuck.clear()
+	rules.cheat_reset_ball()
+
+## Cheat (V): toggle gravity between 50% and 100% by changing the live physics
+## space directly (works instantly, no project-settings reload needed).
+func _toggle_gravity() -> void:
+	_gravity_half = not _gravity_half
+	var g: float = _gravity_normal * (GRAVITY_HALF_FACTOR if _gravity_half else 1.0)
+	PhysicsServer2D.area_set_param(get_world_2d().space, PhysicsServer2D.AREA_PARAM_GRAVITY, g)
+	rules.message.emit("GRAVITY %d%%" % (50 if _gravity_half else 100), 1.5)
+
+## Cheat (TAB): toggle a zoomed-in camera that follows the oldest ball still in
+## play (see `_find_follow_ball`). Toggling off snaps back to the normal
+## full-table view.
+func _toggle_zoom_follow() -> void:
+	_cam_follow = not _cam_follow
+	if lights == null:
+		return
+	lights.set_zoom(ZOOM_FOLLOW if _cam_follow else ZOOM_NORMAL)
+	if not _cam_follow:
+		lights.set_camera_position(LightsScript.HOME_CAMERA_POS)
+
+func _update_camera_follow(delta: float) -> void:
+	if not _cam_follow or lights == null:
+		return
+	var target := _find_follow_ball()
+	if target == null:
+		return
+	var cur: Vector2 = lights.get_camera_position()
+	lights.set_camera_position(cur.lerp(target.global_position, clampf(delta * CAMERA_FOLLOW_LERP, 0.0, 1.0)))
+
+## The ball to follow is the oldest still-alive one (lowest spawn_seq), so a
+## multiball camera keeps tracking the first ball that entered play even as
+## later ones join or drain.
+func _find_follow_ball() -> Node:
+	var best: Node = null
+	var best_seq := 2147483647
+	for ball in get_tree().get_nodes_in_group("balls"):
+		if not is_instance_valid(ball) or ball.get_meta("drained", false):
+			continue
+		var seq: int = ball.get_meta("spawn_seq", 2147483647)
+		if seq < best_seq:
+			best_seq = seq
+			best = ball
+	return best
+
 func spawn_ball(pos: Vector2, vel := Vector2.ZERO) -> RigidBody2D:
 	var ball := BallScene.instantiate()
 	ball.position = pos
 	add_child(ball)
 	ball.linear_velocity = vel
+	_ball_seq += 1
+	ball.set_meta("spawn_seq", _ball_seq)
 	return ball
 
 func _on_request_serve_ball() -> void:
@@ -529,6 +625,36 @@ func _on_vortex_captured() -> void:
 	switch_hit.emit("vortex")
 	_sfx_play("scoop")
 	rules.on_event("vortex")
+
+## One soft bonus pickup at a time: while PLAYING, count down to the next
+## spawn whenever none is alive (its own lifetime timer or a ball touching it
+## makes it free itself, which we notice next frame via is_instance_valid).
+func _update_soft_bonus(delta: float) -> void:
+	if rules.state != RulesScript.State.PLAYING:
+		if _soft_bonus and is_instance_valid(_soft_bonus):
+			_soft_bonus.queue_free()
+		_soft_bonus = null
+		return
+	if _soft_bonus != null and not is_instance_valid(_soft_bonus):
+		_soft_bonus = null
+		_soft_bonus_timer = randf_range(SOFT_BONUS_MIN_DELAY, SOFT_BONUS_MAX_DELAY)
+	if _soft_bonus == null:
+		_soft_bonus_timer -= delta
+		if _soft_bonus_timer <= 0.0:
+			_spawn_soft_bonus()
+
+func _spawn_soft_bonus() -> void:
+	var pos: Vector2 = SOFT_BONUS_SPOTS[randi() % SOFT_BONUS_SPOTS.size()]
+	var b := SoftBonusScript.new()
+	b.position = pos
+	add_child(b)
+	b.collected.connect(_on_soft_bonus_collected)
+	_soft_bonus = b
+
+func _on_soft_bonus_collected(kind: String) -> void:
+	switch_hit.emit("soft_bonus")
+	_sfx_play("coin")
+	rules.on_event("soft_bonus", {"kind": kind})
 
 func _check_balls(delta: float) -> void:
 	for ball in get_tree().get_nodes_in_group("balls"):
@@ -937,6 +1063,14 @@ func _on_tilted() -> void:
 func _on_state_changed(state: int) -> void:
 	if state != RulesScript.State.PLAYING:
 		_slot_ready = false
+		if _cam_follow:
+			_cam_follow = false
+			if lights:
+				lights.set_zoom(ZOOM_NORMAL)
+				lights.set_camera_position(LightsScript.HOME_CAMERA_POS)
+		if _gravity_half:
+			_gravity_half = false
+			PhysicsServer2D.area_set_param(get_world_2d().space, PhysicsServer2D.AREA_PARAM_GRAVITY, _gravity_normal)
 	_update_slot()
 
 func _on_slot_cycle_finished(result: Dictionary) -> void:

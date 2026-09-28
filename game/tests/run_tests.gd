@@ -16,6 +16,8 @@ func _initialize() -> void:
 	run("lanes all lit -> multiplier cap 5", test_lanes_multiplier_cap)
 	run("bonus bumpers all lit -> multiplier + bonus points, then reset", test_bonus_bumpers_multiplier)
 	run("cheats: multiball / extra ball, ignored outside PLAYING", test_cheats)
+	run("cheat: reset ball clears balls_in_play + multiball, ignored outside PLAYING", test_cheat_reset_ball)
+	run("soft bonus: points / multiplier / ball_save kinds", test_soft_bonus)
 	run("INDY completion -> lock_lit + targets_reset", test_indy_completion)
 	run("scoop priority chain", test_scoop_priority)
 	run("mode progress, completion, timeout, cycle", test_modes)
@@ -124,6 +126,24 @@ func test_award_values() -> void:
 	r.on_event("vortex")
 	expect(r.score - base == RulesScript.VORTEX_POINTS, "vortex hole points")
 
+func test_soft_bonus() -> void:
+	var r = _new_started()
+	var base: int = r.score
+	r.on_event("soft_bonus", {"kind": "points"})
+	expect(r.score - base == RulesScript.SOFT_BONUS_POINTS, "soft bonus points kind")
+	expect(r.score - base == RulesScript.SOFT_BONUS_POINTS, "unknown kind falls back to points")
+
+	r = _new_started()
+	var mult_before: int = r.multiplier
+	r.on_event("soft_bonus", {"kind": "multiplier"})
+	expect(r.multiplier == mult_before + 1, "soft bonus multiplier kind")
+
+	r = _new_started()
+	r.on_event("ball_added")
+	r.on_event("soft_bonus", {"kind": "ball_save"})
+	r.on_event("drain")
+	expect(r.ball_number == 1, "soft bonus ball_save prevents ball loss on drain")
+
 func test_lanes_multiplier_cap() -> void:
 	var r = _new_started()
 	r.on_event("lane", {"index": 0})
@@ -181,6 +201,23 @@ func test_cheats() -> void:
 	for i in 5:
 		r.cheat_add_extra_ball()
 	expect(r.extra_balls == RulesScript.EXTRA_BALLS_MAX, "cheat_add_extra_ball capped at EXTRA_BALLS_MAX")
+
+func test_cheat_reset_ball() -> void:
+	var r = RulesScript.new()
+	r.cheat_reset_ball()
+	expect(r.state == RulesScript.State.ATTRACT, "cheat_reset_ball ignored outside PLAYING")
+
+	r = _new_started()
+	r.on_event("ball_added")
+	r.on_event("ball_added")
+	r.multiball = true
+	var serves: Array = [0]
+	r.request_serve_ball.connect(func(): serves[0] += 1)
+	r.cheat_reset_ball()
+	expect(r.balls_in_play == 0, "cheat_reset_ball clears balls_in_play")
+	expect(not r.multiball, "cheat_reset_ball clears multiball")
+	expect(serves[0] == 1, "cheat_reset_ball requests a fresh serve")
+	expect(r.ball_number == 1, "cheat_reset_ball does not cost a ball")
 
 func test_indy_completion() -> void:
 	var r = _new_started()

@@ -25,6 +25,9 @@ material from either source.
   so the bounce is never quite where you expect.
 - **Vortex holes**: sucker pits that grab the ball, hold it for a couple of seconds
   while the rim spins and glows, then fire it hard back up the table.
+- **Soft floating bonuses**: glowing orbs that appear at random spots and grant a
+  bonus (points, a multiplier bump, or a ball save) on touch — they have no
+  collision at all, so the ball just rolls straight through them.
 - Two elevated ramps, a drop-target bank ("I-N-D-Y"), rollover lanes, orbits, a
   central idol scoop, slingshots, a mode ladder, "Eternal Life" multiball, ball
   save, extra balls, nudge, and a proper tilt system that kills the flippers and
@@ -63,6 +66,9 @@ Because sometimes you just want to see the lights go off:
 | `M` | Instantly starts (or adds to) Eternal Life multiball |
 | `B` | Drops a free extra ball into play right now |
 | `N` | Grants an extra ball in reserve (claimed as "SHOOT AGAIN" at end of ball) |
+| `R` | Clears every ball off the field and serves a fresh one — no life lost (stuck-ball rescue) |
+| `V` | Toggles gravity between 100% and 50% |
+| `Tab` | Toggles a zoomed-in camera that follows the ball (the first one into play, in multiball) |
 
 ## Running it
 

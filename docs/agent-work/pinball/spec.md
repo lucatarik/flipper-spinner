@@ -519,3 +519,75 @@ line rather than actually marketing towards problem gambling.
   slot art; wing flippers reachable, left pair visibly closer to the wall/ramp; vortex
   holes capture a ball and fire it upward after ~2 s; `M`/`B`/`N` behave as cheats and no
   longer double as `flip_right`/`music_toggle`.
+
+---
+# Part G — user feedback round 6 (stuck-ball cheat, +10% flippers, gravity toggle,
+# follow camera, left side-bumper reposition, soft floating bonuses)
+
+Also implemented by hand (no Godot/opencode in this sandbox), not run/verified headless.
+
+## G1 Left side bumper raised (stuck-ball report)
+`SIDE_BUMPERS[0].pos` moved from `(20,860)` to `(20,845)` (table.gd) — balls sliding down
+the left wall were reported catching on it. Exact snag geometry unconfirmed (no engine
+here to reproduce); if still stuck after this, the next thing to try is enlarging the
+side bumper's own `radius` (side_bumper.gd, default 22) rather than moving it further.
+
+## G2 Flipper speed + power +10%
+`flipper.gd`: `SWING_SPEED` 15.0 -> 16.5 rad/s, `KICK_MULT` 1.15 -> 1.265. Shared consts,
+so every flipper (main + all 3 wings) gets both bumps automatically.
+
+## G3 Cheat: R = rescue/reset a stuck ball
+`Rules.cheat_reset_ball()` (new): `balls_in_play = 0`, `multiball = false`, emits
+`request_serve_ball` — same "waiting for a fresh ball" state as any normal ball start,
+no life lost. Table side: `table._cheat_reset_ball()` frees every node in group "balls"
+directly (marks each `drained` first so `_check_balls` ignores it that frame) — it does
+**not** go through `_drain_ball`, so no `drain` event fires and no bonus/life is touched.
+Ignored outside PLAYING (existing guard pattern).
+
+## G4 Cheat: V = gravity toggle (100% / 50%)
+`table._toggle_gravity()`: flips `PhysicsServer2D.area_set_param(get_world_2d().space,
+PhysicsServer2D.AREA_PARAM_GRAVITY, g)` between the project's configured default gravity
+(read once in `_ready()` from `physics/2d/default_gravity`, currently 1400) and half that.
+This changes the live physics space directly, no project-settings reload needed. Resets to
+100% automatically when a game ends (`_on_state_changed`), so a new game always starts at
+normal gravity.
+
+## G5 Cheat: TAB = zoomed follow camera
+`lights.gd` gained `set_zoom`, `set_camera_position`, `get_camera_position` (thin wrappers
+around the existing `TableCamera` it already owned for `shake()`). `table._toggle_zoom_follow()`
+flips between `zoom = (1,1)` (normal) and `zoom = (0.6,0.6)` (zoomed in ~1.67x, "not too
+close" per the request); while zoomed, `table._update_camera_follow()` lerps the camera
+position toward the tracked ball every physics frame (`CAMERA_FOLLOW_LERP = 6.0`).
+**Which ball**: every spawned ball gets a monotonic `spawn_seq` meta (table.gd `spawn_ball`,
+`_ball_seq` counter); `_find_follow_ball()` returns the still-alive ball with the *lowest*
+`spawn_seq` — i.e. the first one that entered play — so in multiball the camera keeps
+tracking that same ball even as later ones join, and automatically switches to the
+next-oldest if the tracked one drains. Toggling off (or the state leaving PLAYING) resets
+zoom to normal and camera position to `HOME_CAMERA_POS = (360,640)`.
+
+## G6 Soft floating bonuses (`scripts/floating_bonus.gd`, new)
+Pure `Area2D`, no `StaticBody2D`/collision shape on layer 1 at all — the ball has nothing
+solid to bounce off, it rolls straight through. One at a time: appears at a random spot
+from a curated list of 7 open positions (`table.SOFT_BONUS_SPOTS`, picked clear of every
+wall/bumper/target/ramp/other dynamic element with margin — see the const's comment),
+picks a random `kind` (points / multiplier / ball_save) at spawn (visual color hints the
+kind), pulses + slowly spins, and either gets touched (grants the bonus, frees itself) or
+times out after `LIFETIME = 12s` (fades away, no bonus). Next one appears after a random
+7-14s gap. Rules: new event `soft_bonus` with `{"kind": ...}`:
+- `points` (default/unknown kind too) -> `_award(SOFT_BONUS_POINTS = 7500)`.
+- `multiplier` -> `multiplier += 1` (capped, same as lanes/bonus bumpers).
+- `ball_save` -> extends/starts an 8s ball save (`SOFT_BONUS_BALL_SAVE`), same mechanism
+  the plunger and the slot's pharaoh bonus use.
+Spawning/despawning is driven entirely by `table._update_soft_bonus()`, gated on
+`rules.state == PLAYING` (cleared immediately otherwise, including on game over).
+
+## Acceptance (Part G) — not yet run
+- G-A1 `run_tests.gd`: new `test_cheat_reset_ball` (ignored outside PLAYING, clears
+  balls_in_play/multiball, requests a serve, does not advance ball_number) and
+  `test_soft_bonus` (all 3 kinds, unknown kind falls back to points).
+- G-A2 manual play (not yet run, most important one here): confirm the left side bumper
+  no longer catches balls (may need G1's follow-up radius tweak instead); flippers feel
+  ~10% snappier; `R` actually frees a wedged ball without costing a life; `V` visibly
+  changes fall speed and toggles back; `TAB` zooms in, follows the first ball into play
+  through a multiball, and returns to normal on a second press; soft bonus orbs appear,
+  don't deflect the ball, and grant their bonus on touch.

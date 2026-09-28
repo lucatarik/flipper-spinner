@@ -8,6 +8,7 @@ extends Node2D
 const GOLD := Color("#ffd24a")
 const OFF := Color(0.12, 0.10, 0.06)
 const DIM := 0.72
+const HOME_CAMERA_POS := Vector2(360.0, 640.0)
 
 var _modulate: CanvasModulate
 var _camera: Camera2D
@@ -33,7 +34,7 @@ func setup(parent: Node2D) -> void:
 
 	_camera = Camera2D.new()
 	_camera.name = "TableCamera"
-	_camera.position = Vector2(360.0, 640.0)
+	_camera.position = HOME_CAMERA_POS
 	_camera.enabled = true
 	parent.add_child(_camera)
 
@@ -103,6 +104,20 @@ func set_mode(on: bool) -> void:
 func set_ball_save(on: bool) -> void:
 	_shield_on = on
 	_shield.modulate.a = 0.0 if not on else 1.0
+
+## TAB cheat: zoom/follow camera. The table drives `set_camera_position` every
+## frame while following; `set_zoom` toggles in/out. Both no-ops if the camera
+## somehow doesn't exist yet.
+func set_zoom(z: Vector2) -> void:
+	if _camera:
+		_camera.zoom = z
+
+func set_camera_position(pos: Vector2) -> void:
+	if _camera:
+		_camera.position = pos
+
+func get_camera_position() -> Vector2:
+	return _camera.position if _camera else HOME_CAMERA_POS
 
 func set_tilt(on: bool) -> void:
 	_tilt = on

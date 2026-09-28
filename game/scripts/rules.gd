@@ -37,6 +37,8 @@ const COMBO_WINDOW := 3.0
 const RAMPS_PER_EXTRA_BALL := 4
 const BONUS_BUMPER_POINTS := 10000
 const VORTEX_POINTS := 3000
+const SOFT_BONUS_POINTS := 7500
+const SOFT_BONUS_BALL_SAVE := 8.0
 
 const MODES := [
 	{"name": "WELL OF SOULS", "event": "bumper", "goal": 15},
@@ -185,6 +187,8 @@ func on_event(name: String, data: Dictionary = {}) -> void:
 				message.emit("EXTRA BALL", 2.0)
 		"vortex":
 			_award(VORTEX_POINTS)
+		"soft_bonus":
+			_on_soft_bonus(String(data.get("kind", "points")))
 		"plunger_exit":
 			_on_plunger_exit()
 		"drain":
@@ -277,6 +281,17 @@ func cheat_add_extra_ball() -> void:
 	extra_balls_changed.emit(extra_balls)
 	message.emit("CHEAT: EXTRA BALL x%d" % extra_balls, 2.0)
 
+## Cheat (R): rescue a stuck ball. The table clears every ball from the field
+## (no drain event, no life lost) and this puts state back to "waiting for a
+## fresh ball", exactly like the start of any other ball.
+func cheat_reset_ball() -> void:
+	if state != State.PLAYING:
+		return
+	balls_in_play = 0
+	multiball = false
+	message.emit("CHEAT: BALL RESET", 1.5)
+	request_serve_ball.emit()
+
 func _lock_balls(n: int) -> void:
 	locks += n
 	if locks >= 3:
@@ -367,6 +382,22 @@ func _on_bonus_bumper(index: int) -> void:
 		_award(BONUS_BUMPER_POINTS)
 		message.emit("BUMPER BONUS x%d" % multiplier, 2.0)
 	bonus_bumpers_changed.emit(bonus_bumpers.duplicate())
+
+## Floating "soft" pickups (no collision — the table just tells us which kind
+## the ball touched). `kind` is decided by the pickup itself when it spawns.
+func _on_soft_bonus(kind: String) -> void:
+	match kind:
+		"multiplier":
+			multiplier = min(multiplier + 1, MULTIPLIER_MAX)
+			message.emit("SOFT BONUS: MULTIPLIER x%d" % multiplier, 2.0)
+		"ball_save":
+			if not tilted:
+				_ball_save_active = true
+				_ball_save_timer = maxf(_ball_save_timer, 0.0) + SOFT_BONUS_BALL_SAVE
+			message.emit("SOFT BONUS: BALL SAVE +%ds" % int(SOFT_BONUS_BALL_SAVE), 2.0)
+		_:
+			_award(SOFT_BONUS_POINTS)
+			message.emit("SOFT BONUS +%d" % SOFT_BONUS_POINTS, 1.5)
 
 func _on_target(_index: int) -> void:
 	_award(2500)
