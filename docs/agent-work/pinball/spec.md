@@ -419,10 +419,15 @@ a manual play session before trusting this part.
 ## E1 Wing flippers
 Two small flippers (`flipper.gd` now takes `@export var size_scale := 1.0`, scaling
 LENGTH/PIVOT_RADIUS/TIP_RADIUS; `BASE_LENGTH` etc. hold the original full-size constants),
-`WING_FLIPPER_SCALE = 0.55`, pivots `(160,750)` left / `(560,750)` right (table.gd), fired
+`WING_FLIPPER_SCALE = 0.75`, pivots `(185,870)` left / `(535,870)` right (table.gd), fired
 together with the main flipper on their side — same `flip_left`/`flip_right` input and touch
 zones, no new controls. Included in the tilt kill-switch (`set_disabled`) and reset-on-serve
 paths alongside the main flippers.
+Placement note (user feedback after first playtest): the original `(160,750)`/`(560,750)`
+pivots at 0.55 scale sat under ramp R1's artwork (drawn above the bumpers) and were invisible.
+Moved down to y=870, just above the slingshots and below where both ramps' rails end (R1's
+right mouth is (528,812); its left return rail curves away from x112 toward the wall below
+y755), clear of the ramp corridors with 40+ px margin either side; also bumped up in size.
 
 ## E2 Bonus bumpers
 The 3 central "jungle" bumpers (`BUMPER_POSITIONS`) double as a light-them-all bank, mirroring

@@ -57,10 +57,13 @@ const PLUNGER_POS := Vector2(674, 1150)
 ## Extra "wing" flipper pair, higher up in the open lanes either side of the slot
 ## pit, fired together with the main flipper on their side (same buttons) so a
 ## weak shot in the middle can be batted back up toward the bumpers/ramps instead
-## of draining straight down.
-const WING_FLIPPER_SCALE := 0.55
-const WING_LEFT_PIVOT := Vector2(160, 750)
-const WING_RIGHT_PIVOT := Vector2(560, 750)
+## of draining straight down. Pivots sit just above the slingshots, below where
+## both ramps' rails end (R1's mouth is (528,812) on the right, its return rail
+## curves away from x112 toward the wall below y755 on the left) so the ramp
+## artwork (drawn above the bumpers) never covers them.
+const WING_FLIPPER_SCALE := 0.75
+const WING_LEFT_PIVOT := Vector2(185, 870)
+const WING_RIGHT_PIVOT := Vector2(535, 870)
 
 ## Small bumpers that patrol back and forth over the (non-colliding) slot pit.
 const MINI_BUMPERS := [
