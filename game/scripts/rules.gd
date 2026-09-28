@@ -36,6 +36,7 @@ const RAMP_COMBO_AWARD := 25000
 const COMBO_WINDOW := 3.0
 const RAMPS_PER_EXTRA_BALL := 4
 const BONUS_BUMPER_POINTS := 10000
+const VORTEX_POINTS := 3000
 
 const MODES := [
 	{"name": "WELL OF SOULS", "event": "bumper", "goal": 15},
@@ -182,6 +183,8 @@ func on_event(name: String, data: Dictionary = {}) -> void:
 				extra_balls = mini(extra_balls + 1, EXTRA_BALLS_MAX)
 				extra_balls_changed.emit(extra_balls)
 				message.emit("EXTRA BALL", 2.0)
+		"vortex":
+			_award(VORTEX_POINTS)
 		"plunger_exit":
 			_on_plunger_exit()
 		"drain":
@@ -257,6 +260,22 @@ func add_ball(n: int = 1) -> void:
 	if not multiball:
 		multiball = true
 		message.emit("ADD-A-BALL", 2.0)
+
+## Cheat (M): instantly start (or add to) Eternal Life multiball.
+func cheat_multiball() -> void:
+	if state != State.PLAYING:
+		return
+	multiball = true
+	message.emit("ETERNAL LIFE MULTIBALL (CHEAT)", 3.0)
+	request_multiball.emit(2)
+
+## Cheat (N): grant an extra ball in reserve, claimed as "SHOOT AGAIN" at end of ball.
+func cheat_add_extra_ball() -> void:
+	if state != State.PLAYING:
+		return
+	extra_balls = mini(extra_balls + 1, EXTRA_BALLS_MAX)
+	extra_balls_changed.emit(extra_balls)
+	message.emit("CHEAT: EXTRA BALL x%d" % extra_balls, 2.0)
 
 func _lock_balls(n: int) -> void:
 	locks += n

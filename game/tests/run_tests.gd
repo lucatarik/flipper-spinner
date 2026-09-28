@@ -15,6 +15,7 @@ func _initialize() -> void:
 	run("award values", test_award_values)
 	run("lanes all lit -> multiplier cap 5", test_lanes_multiplier_cap)
 	run("bonus bumpers all lit -> multiplier + bonus points, then reset", test_bonus_bumpers_multiplier)
+	run("cheats: multiball / extra ball, ignored outside PLAYING", test_cheats)
 	run("INDY completion -> lock_lit + targets_reset", test_indy_completion)
 	run("scoop priority chain", test_scoop_priority)
 	run("mode progress, completion, timeout, cycle", test_modes)
@@ -119,6 +120,9 @@ func test_award_values() -> void:
 	base = r.score
 	r.on_event("scoop")
 	expect(r.score - base == 5000, "scoop base 5000 while mode running")
+	base = r.score
+	r.on_event("vortex")
+	expect(r.score - base == RulesScript.VORTEX_POINTS, "vortex hole points")
 
 func test_lanes_multiplier_cap() -> void:
 	var r = _new_started()
@@ -156,6 +160,27 @@ func test_bonus_bumpers_multiplier() -> void:
 	r.on_event("bumper")
 	expect(r.bonus_bumpers == [false, false, false], "a plain bumper hit (no bonus_index) does not light the bank")
 	expect(r.score - plain_base == 1000, "plain bumper still scores normally")
+
+func test_cheats() -> void:
+	var r = RulesScript.new()
+	r.cheat_multiball()
+	expect(not r.multiball, "cheat_multiball ignored outside PLAYING")
+	r.cheat_add_extra_ball()
+	expect(r.extra_balls == 0, "cheat_add_extra_ball ignored outside PLAYING")
+
+	r = _new_started()
+	var mb_count: Array = [0]
+	r.request_multiball.connect(func(_n): mb_count[0] += 1)
+	r.cheat_multiball()
+	expect(r.multiball, "cheat_multiball sets multiball")
+	expect(mb_count[0] == 1, "cheat_multiball requests a multiball spawn")
+
+	r = _new_started()
+	r.cheat_add_extra_ball()
+	expect(r.extra_balls == 1, "cheat_add_extra_ball grants one")
+	for i in 5:
+		r.cheat_add_extra_ball()
+	expect(r.extra_balls == RulesScript.EXTRA_BALLS_MAX, "cheat_add_extra_ball capped at EXTRA_BALLS_MAX")
 
 func test_indy_completion() -> void:
 	var r = _new_started()

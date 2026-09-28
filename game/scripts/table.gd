@@ -19,6 +19,7 @@ const LightsScript = preload("res://scripts/lights.gd")
 const SlotScene = preload("res://scenes/slot.tscn")
 const RampScript = preload("res://scripts/ramp.gd")
 const MiniBumperScript = preload("res://scripts/mini_bumper.gd")
+const KickbackHoleScript = preload("res://scripts/kickback_hole.gd")
 
 const TEX_PLAYFIELD = preload("res://assets/playfield.jpg")
 const TEX_BUMPER = preload("res://assets/sprites/bumper.png")
@@ -60,16 +61,27 @@ const PLUNGER_POS := Vector2(674, 1150)
 ## of draining straight down. Pivots sit just above the slingshots, below where
 ## both ramps' rails end (R1's mouth is (528,812) on the right, its return rail
 ## curves away from x112 toward the wall below y755 on the left) so the ramp
-## artwork (drawn above the bumpers) never covers them.
+## artwork (drawn above the bumpers) never covers them. WING_LEFT_PIVOT is pulled
+## in as close to the ramp's return rail as clearance allows (~24px margin) so it
+## reads as anchored to the wall/ramp instead of floating in open space.
 const WING_FLIPPER_SCALE := 0.75
-const WING_LEFT_PIVOT := Vector2(185, 870)
+const WING_LEFT_PIVOT := Vector2(140, 870)
 const WING_RIGHT_PIVOT := Vector2(535, 870)
+
+## A third, smaller left-side wing flipper further up the table (also fires with
+## flip_left), clear of the pop bumper at (150,330), the scoop and the top lanes.
+const WING_TOP_LEFT_SCALE := 0.55
+const WING_TOP_LEFT_PIVOT := Vector2(170, 250)
 
 ## Small bumpers that patrol back and forth over the (non-colliding) slot pit.
 const MINI_BUMPERS := [
 	{"a": Vector2(210, 620), "b": Vector2(300, 620), "speed": 70.0},
 	{"a": Vector2(370, 700), "b": Vector2(460, 700), "speed": 85.0},
 ]
+
+## "Vortex" sucker holes: open pits over the same non-colliding slot pit, clear of
+## both mini-bumper tracks and the wing flippers (40+ px margin either way).
+const VORTEX_HOLES := [Vector2(335, 660), Vector2(250, 750)]
 
 const SLING_LEFT_POLY := [Vector2(75, 880), Vector2(75, 990), Vector2(165, 1037)]
 const SLING_LEFT_KICK := Vector2(0.868, -0.497)
@@ -118,6 +130,7 @@ var left_flipper
 var right_flipper
 var wing_left_flipper
 var wing_right_flipper
+var wing_top_left_flipper
 var plunger
 var scoop
 var target_bank
@@ -130,6 +143,7 @@ var side_bumpers: Array = []
 var new_bumpers: Array = []
 var mini_bumpers: Array = []
 var bonus_bumper_nodes: Array = []
+var vortex_holes: Array = []
 
 var _walls: StaticBody2D
 var _drain_area: Area2D
@@ -167,6 +181,7 @@ func _ready() -> void:
 	_build_drain()
 	_build_features()
 	_build_slot()
+	_build_vortex_holes()
 	_build_ramps()
 	_build_lights()
 	if hud and hud.has_method("setup"):
@@ -226,6 +241,13 @@ func _physics_process(delta: float) -> void:
 	if Input.is_action_just_pressed("nudge_up"):
 		_do_nudge(Vector2(0.0, -1.0))
 
+	if Input.is_action_just_pressed("cheat_multiball"):
+		rules.cheat_multiball()
+	if Input.is_action_just_pressed("cheat_free_ball"):
+		rules.add_ball(1)
+	if Input.is_action_just_pressed("cheat_extra_ball"):
+		rules.cheat_add_extra_ball()
+
 	var dead: bool = rules.tilted
 	var left := Input.is_action_pressed("flip_left") and not dead
 	if left != _left_down:
@@ -233,6 +255,8 @@ func _physics_process(delta: float) -> void:
 		left_flipper.set_pressed(left)
 		if wing_left_flipper:
 			wing_left_flipper.set_pressed(left)
+		if wing_top_left_flipper:
+			wing_top_left_flipper.set_pressed(left)
 		if left:
 			_sfx_play("flipper")
 			rules.flip_lanes(-1)
@@ -279,6 +303,8 @@ func _input(event: InputEvent) -> void:
 				left_flipper.set_pressed(true)
 				if wing_left_flipper:
 					wing_left_flipper.set_pressed(true)
+				if wing_top_left_flipper:
+					wing_top_left_flipper.set_pressed(true)
 			else:
 				right_flipper.set_pressed(true)
 				if wing_right_flipper:
@@ -291,6 +317,8 @@ func _input(event: InputEvent) -> void:
 				wing_left_flipper.set_pressed(false)
 			if wing_right_flipper:
 				wing_right_flipper.set_pressed(false)
+			if wing_top_left_flipper:
+				wing_top_left_flipper.set_pressed(false)
 			_touch_count = 0
 
 ## C4: table nudge. Rules decides whether the meter tolerates it; the table then
@@ -325,6 +353,8 @@ func _on_request_serve_ball() -> void:
 		wing_left_flipper.set_disabled(false)
 	if wing_right_flipper:
 		wing_right_flipper.set_disabled(false)
+	if wing_top_left_flipper:
+		wing_top_left_flipper.set_disabled(false)
 	if lights:
 		lights.set_tilt(false)
 	_slot_ready = false
@@ -495,6 +525,11 @@ func _on_scoop_captured() -> void:
 	_sfx_play("scoop")
 	rules.on_event("scoop")
 
+func _on_vortex_captured() -> void:
+	switch_hit.emit("vortex")
+	_sfx_play("scoop")
+	rules.on_event("vortex")
+
 func _check_balls(delta: float) -> void:
 	for ball in get_tree().get_nodes_in_group("balls"):
 		if not is_instance_valid(ball):
@@ -522,7 +557,7 @@ func _check_balls(delta: float) -> void:
 ## ball is rescued into the idol scoop (hold + kick, no score). Returns true when
 ## the ball was nudged/rescued so the caller can skip further handling.
 func _ball_is_stuck(ball: Node, delta: float, in_lane: bool) -> bool:
-	if in_lane or scoop.holding or ball.get_meta("on_ramp", false):
+	if in_lane or scoop.holding or ball.get_meta("on_ramp", false) or ball.get_meta("held_by_hole", false):
 		_stuck.erase(ball.get_instance_id())
 		return false
 	if ball.linear_velocity.length() >= STUCK_SPEED:
@@ -707,6 +742,14 @@ func _build_mini_bumpers() -> void:
 		mini_bumpers.append(mb)
 		new_bumpers.append(mb)
 
+func _build_vortex_holes() -> void:
+	for pos in VORTEX_HOLES:
+		var h := KickbackHoleScript.new()
+		h.position = pos
+		add_child(h)
+		h.captured.connect(_on_vortex_captured)
+		vortex_holes.append(h)
+
 func _build_slingshots() -> void:
 	var left_poly := PackedVector2Array(SLING_LEFT_POLY)
 	var right_poly := PackedVector2Array(SLING_RIGHT_POLY)
@@ -739,6 +782,12 @@ func _build_flippers() -> void:
 	wing_right_flipper.size_scale = WING_FLIPPER_SCALE
 	wing_right_flipper.position = WING_RIGHT_PIVOT
 	add_child(wing_right_flipper)
+
+	wing_top_left_flipper = FlipperScript.new()
+	wing_top_left_flipper.side = "left"
+	wing_top_left_flipper.size_scale = WING_TOP_LEFT_SCALE
+	wing_top_left_flipper.position = WING_TOP_LEFT_PIVOT
+	add_child(wing_top_left_flipper)
 
 func _build_plunger() -> void:
 	plunger = PlungerScript.new()
@@ -865,6 +914,8 @@ func _on_tilted() -> void:
 		wing_left_flipper.set_pressed(false)
 	if wing_right_flipper:
 		wing_right_flipper.set_pressed(false)
+	if wing_top_left_flipper:
+		wing_top_left_flipper.set_pressed(false)
 	if left_flipper:
 		left_flipper.set_disabled(true)
 	if right_flipper:
@@ -873,6 +924,8 @@ func _on_tilted() -> void:
 		wing_left_flipper.set_disabled(true)
 	if wing_right_flipper:
 		wing_right_flipper.set_disabled(true)
+	if wing_top_left_flipper:
+		wing_top_left_flipper.set_disabled(true)
 	_left_down = false
 	_right_down = false
 	if lights:

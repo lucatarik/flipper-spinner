@@ -25,6 +25,9 @@ var _velocity := Vector2.ZERO
 var _prev_pos := Vector2.ZERO
 
 func _ready() -> void:
+	# Above the slot (z_index 2), which it patrols over, so it isn't hidden under
+	# the reels; below the ball (z_index 6) so the ball still reads on top.
+	z_index = 3
 	collision_layer = 1
 	collision_mask = 0
 	position = point_a

@@ -462,3 +462,60 @@ position from `get_meta("approach")`, expects a `hit`) covers them automatically
 - E-A3 `godot --headless --path game --quit-after 600` -> no SCRIPT ERROR/ERROR (not yet run).
 - E-A4 manual play: wing flippers reachable and useful, bonus-bumper lamps track hits and clear
   on the third, mini bumpers visibly patrol and kick the ball unpredictably.
+
+---
+# Part F — user feedback round 5 (fix mini-bumper visibility, wing flipper placement,
+# vortex sucker holes, cheat keys, README)
+
+Also implemented by hand (no Godot/opencode in this sandbox), not run/verified headless.
+
+## F1 Mini bumper invisible — root cause found and fixed
+`mini_bumper.gd` never set `z_index`, so it defaulted to 0 while `slot.z_index = 2`
+(table.gd `_build_slot`) — the slot's reel art was drawing on top of both mini bumpers,
+which sit inside the slot's footprint by design. Fixed: `mini_bumper.gd` now sets
+`z_index = 3` in `_ready()` (above the slot, below the ball's `z_index = 6`).
+
+## F2 Wing flipper placement tuning
+- `WING_LEFT_PIVOT` moved from `(185,870)` to `(140,870)` — pulled in to ~24px clearance
+  from ramp R1's return-rail corridor (as close to the wall/ramp as the geometry allows;
+  going any closer overlaps the ramp, which is a hard constraint — R1's rail runs the
+  full length of that wall, so nothing can sit directly between the wall and the rail).
+- Added a **third, smaller left-side wing flipper** (`wing_top_left_flipper`,
+  `WING_TOP_LEFT_SCALE = 0.55`, pivot `(170,250)`), fired with the same `flip_left` input,
+  clear of the (150,330) pop bumper, the scoop and the top lanes.
+
+## F3 Vortex sucker holes (`scripts/kickback_hole.gd`, new)
+An open pit (no walls, unlike the idol scoop's cup — reachable from any direction).
+Capture → freeze the ball at centre for `HOLD = 2.0 s` while the rim spins and the glow
+pulses (the new light-effect ask), then launch it hard (`KICK_SPEED = 1150`) mostly
+straight up (±16° random spread). Two placed in the open slot pit, clear of both mini
+bumper tracks and the wing flippers: `(335,660)` and `(250,750)`. Rules: new event
+`vortex` → `_award(VORTEX_POINTS = 3000)`. `table._ball_is_stuck` now also skips a ball
+with `held_by_hole` meta (set while captured, like the ramp's `on_ramp` meta), so the
+stuck-ball safety net doesn't fight the hold.
+
+## F4 Cheat keys (table.gd + rules.gd, project.godot InputMap)
+- `M` → `Rules.cheat_multiball()` (new): starts/extends Eternal Life multiball.
+- `B` → `Rules.add_ball(1)` (existing add-a-ball path, reused as-is).
+- `N` → `Rules.cheat_add_extra_ball()` (new): `extra_balls += 1`, capped at `EXTRA_BALLS_MAX`.
+All three are no-ops outside `PLAYING` (existing guard pattern). **Key reassignment**:
+`M` was also a `flip_right` alias (3 others remain: Right arrow, `D`, `/`) — removed to
+avoid firing the right flipper and the multiball cheat on the same keypress. `N` was the
+`music_toggle` shortcut — removed (music toggle is still reachable via the on-screen
+speaker icon); the user asked for `N` specifically for the extra-ball cheat.
+
+## F5 README.md (repo root, new)
+Project overview, controls (incl. the new cheats), how to run/test, project layout,
+credits. Tone: the user explicitly asked for it to lean into "two addictive genres in
+one cabinet" as a joke — keeps that to the intro tagline only, stays a normal/complete
+project README otherwise, and closes with a "play responsibly, it's just a video game"
+line rather than actually marketing towards problem gambling.
+
+## Acceptance (Part F) — not yet run
+- F-A1 `run_tests.gd`: `test_award_values` extended with the `vortex` award; new
+  `test_cheats` (ignored outside PLAYING, `cheat_multiball` sets `multiball` + requests
+  a spawn, `cheat_add_extra_ball` increments and caps at `EXTRA_BALLS_MAX`).
+- F-A2 physics_smoke / manual play (not yet run): mini bumpers visibly patrol above the
+  slot art; wing flippers reachable, left pair visibly closer to the wall/ramp; vortex
+  holes capture a ball and fire it upward after ~2 s; `M`/`B`/`N` behave as cheats and no
+  longer double as `flip_right`/`music_toggle`.
