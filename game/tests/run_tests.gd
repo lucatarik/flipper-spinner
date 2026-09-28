@@ -14,6 +14,7 @@ func _initialize() -> void:
 	run("start_game resets everything", test_start_game_resets)
 	run("award values", test_award_values)
 	run("lanes all lit -> multiplier cap 5", test_lanes_multiplier_cap)
+	run("bonus bumpers all lit -> multiplier + bonus points, then reset", test_bonus_bumpers_multiplier)
 	run("INDY completion -> lock_lit + targets_reset", test_indy_completion)
 	run("scoop priority chain", test_scoop_priority)
 	run("mode progress, completion, timeout, cycle", test_modes)
@@ -131,6 +132,30 @@ func test_lanes_multiplier_cap() -> void:
 		r.on_event("lane", {"index": 2})
 	expect(r.multiplier == 5, "multiplier capped at 5")
 	expect(not r.lanes[0] and not r.lanes[1] and not r.lanes[2], "lanes cleared after bump")
+
+func test_bonus_bumpers_multiplier() -> void:
+	var r = _new_started()
+	r.on_event("bumper", {"bonus_index": 0})
+	expect(r.bonus_bumpers[0] and not r.bonus_bumpers[1] and not r.bonus_bumpers[2], "only bumper 0 lit")
+	expect(r.multiplier == 1, "multiplier unchanged with only 1 lit")
+	r.on_event("bumper", {"bonus_index": 0})
+	expect(r.multiplier == 1, "re-hitting an already-lit bumper is a no-op")
+	var base: int = r.score
+	r.on_event("bumper", {"bonus_index": 1})
+	r.on_event("bumper", {"bonus_index": 2})
+	expect(r.multiplier == 2, "multiplier+1 once all 3 are lit")
+	# 1000 base award for each of the 2 hits above + the flat bonus-bumper points.
+	expect(r.score - base == 1000 * 2 + RulesScript.BONUS_BUMPER_POINTS, "base awards + flat bonus points")
+	expect(not r.bonus_bumpers[0] and not r.bonus_bumpers[1] and not r.bonus_bumpers[2], "bank cleared after bump")
+	for i in 10:
+		r.on_event("bumper", {"bonus_index": 0})
+		r.on_event("bumper", {"bonus_index": 1})
+		r.on_event("bumper", {"bonus_index": 2})
+	expect(r.multiplier == 5, "multiplier capped at 5")
+	var plain_base: int = r.score
+	r.on_event("bumper")
+	expect(r.bonus_bumpers == [false, false, false], "a plain bumper hit (no bonus_index) does not light the bank")
+	expect(r.score - plain_base == 1000, "plain bumper still scores normally")
 
 func test_indy_completion() -> void:
 	var r = _new_started()

@@ -18,6 +18,7 @@ signal extra_balls_changed(n: int)
 signal request_add_ball(count: int)
 signal tilt_warning(level: int)
 signal tilted_changed()
+signal bonus_bumpers_changed(lit: Array)
 
 enum State { ATTRACT, PLAYING, GAME_OVER }
 
@@ -34,6 +35,7 @@ const RAMP_BONUS := 2500
 const RAMP_COMBO_AWARD := 25000
 const COMBO_WINDOW := 3.0
 const RAMPS_PER_EXTRA_BALL := 4
+const BONUS_BUMPER_POINTS := 10000
 
 const MODES := [
 	{"name": "WELL OF SOULS", "event": "bumper", "goal": 15},
@@ -60,6 +62,11 @@ var lanes: Array[bool] = [false, false, false]
 var targets_down: int = 0
 var bonus: int = 0
 
+## "Bonus bumpers" — the 3 central jungle bumpers double as a light-them-all
+## bank, like the top lanes but for bumpers: each one lights on its first hit this
+## ball, all 3 lit -> multiplier+1 (cap MULTIPLIER_MAX) + flat bonus points, resets.
+var bonus_bumpers: Array[bool] = [false, false, false]
+
 var _free_spins_active: bool = false
 var _x2_timer: float = 0.0
 var _ball_save_active: bool = false
@@ -84,6 +91,7 @@ func start_game() -> void:
 	bonus = 0
 	targets_down = 0
 	lanes = [false, false, false]
+	bonus_bumpers = [false, false, false]
 	extra_balls = 0
 	tilted = false
 	ramp_count = 0
@@ -103,6 +111,7 @@ func start_game() -> void:
 	score_changed.emit(score)
 	ball_changed.emit(ball_number, BALLS_PER_GAME)
 	lanes_changed.emit(lanes.duplicate())
+	bonus_bumpers_changed.emit(bonus_bumpers.duplicate())
 	mode_changed.emit("", 0.0, 0, 0)
 	playfield_mult_changed.emit(playfield_mult)
 	extra_balls_changed.emit(extra_balls)
@@ -146,6 +155,9 @@ func on_event(name: String, data: Dictionary = {}) -> void:
 		"bumper":
 			_award(1000)
 			_mode_qualify("bumper")
+			var bonus_index := int(data.get("bonus_index", -1))
+			if bonus_index >= 0:
+				_on_bonus_bumper(bonus_index)
 		"sling":
 			_award(100)
 		"lane":
@@ -323,6 +335,19 @@ func _on_lane(index: int) -> void:
 		lanes = [false, false, false]
 		message.emit("MULTIPLIER x%d" % multiplier, 2.0)
 	lanes_changed.emit(lanes.duplicate())
+
+## Lights one of the 3 bonus bumpers; all 3 lit -> multiplier+1 (cap), flat bonus
+## points, and the bank resets so it can be lit again later in the same ball.
+func _on_bonus_bumper(index: int) -> void:
+	if index < 0 or index >= bonus_bumpers.size():
+		return
+	bonus_bumpers[index] = true
+	if bonus_bumpers[0] and bonus_bumpers[1] and bonus_bumpers[2]:
+		multiplier = min(multiplier + 1, MULTIPLIER_MAX)
+		bonus_bumpers = [false, false, false]
+		_award(BONUS_BUMPER_POINTS)
+		message.emit("BUMPER BONUS x%d" % multiplier, 2.0)
+	bonus_bumpers_changed.emit(bonus_bumpers.duplicate())
 
 func _on_target(_index: int) -> void:
 	_award(2500)

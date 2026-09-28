@@ -21,6 +21,7 @@ var _tilt_label: Label
 
 var _lanes: Array = []
 var _targets: Array = []
+var _bonus_bumpers: Array = []
 var _lock: Polygon2D
 var _mode: Polygon2D
 
@@ -54,6 +55,8 @@ func _build_lamps(parent: Node2D) -> void:
 		_lanes.append(_make_lamp(parent, Vector2(x, 214.0), 11.0))
 	for y in [500.0, 558.0, 616.0, 674.0]:
 		_targets.append(_make_lamp(parent, Vector2(576.0, y), 9.0))
+	for pos in [Vector2(240.0, 392.0), Vector2(420.0, 392.0), Vector2(330.0, 457.0)]:
+		_bonus_bumpers.append(_make_lamp(parent, pos, 8.0))
 	_lock = _make_lamp(parent, Vector2(300.0, 256.0), 10.0)
 	_mode = _make_lamp(parent, Vector2(420.0, 256.0), 10.0)
 	set_lock(false)
@@ -85,6 +88,11 @@ func set_targets(standing: Array) -> void:
 	for i in _targets.size():
 		var on: bool = i < standing.size() and bool(standing[i])
 		_targets[i].color = _lit(on)
+
+func set_bonus_bumpers(lit: Array) -> void:
+	for i in _bonus_bumpers.size():
+		var on: bool = i < lit.size() and bool(lit[i])
+		_bonus_bumpers[i].color = _lit(on)
 
 func set_lock(on: bool) -> void:
 	_lock.color = _lit(on)

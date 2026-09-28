@@ -408,3 +408,52 @@ gated clap on 2 and 4, octave-jumping synth bass, lush pad, and an original lead
   stops after drain (current spin completes); test via slot_view state/cycle counts.
 - D-A5 gen_music.py produces the file (duration 60–70 s); music toggle persists (unit test on
   the settings helper); game runs with no errors/warnings.
+
+---
+# Part E — user feedback round 4 (upper wing flippers, bonus bumpers, moving mini bumpers)
+
+Implemented directly by the orchestrator (no opencode/Godot available in this cloud sandbox —
+see the session's request to the user); not run/verified headless. Run the full test suite and
+a manual play session before trusting this part.
+
+## E1 Wing flippers
+Two small flippers (`flipper.gd` now takes `@export var size_scale := 1.0`, scaling
+LENGTH/PIVOT_RADIUS/TIP_RADIUS; `BASE_LENGTH` etc. hold the original full-size constants),
+`WING_FLIPPER_SCALE = 0.55`, pivots `(160,750)` left / `(560,750)` right (table.gd), fired
+together with the main flipper on their side — same `flip_left`/`flip_right` input and touch
+zones, no new controls. Included in the tilt kill-switch (`set_disabled`) and reset-on-serve
+paths alongside the main flippers.
+
+## E2 Bonus bumpers
+The 3 central "jungle" bumpers (`BUMPER_POSITIONS`) double as a light-them-all bank, mirroring
+the existing top-lanes mechanic: `Rules.bonus_bumpers: Array[bool]` (3), event
+`on_event("bumper", {"bonus_index": i})` (table.gd binds `i` via `.bind()` on the `hit` signal
+for these 3 only; a plain `bumper` event with no `bonus_index` is unaffected — existing callers
+unchanged). All 3 lit -> `multiplier += 1` (cap `MULTIPLIER_MAX`) + `BONUS_BUMPER_POINTS` (10000)
+flat points, bank resets, message "BUMPER BONUS x%d". Reset with the rest of the ball state in
+`start_game()`. New signal `bonus_bumpers_changed(lit)`; `lights.gd` shows 3 small insert lamps
+above the 3 bumpers (`set_bonus_bumpers`), and `bumper.gd` gained `set_lit(bool)` to tint its own
+glow green while lit (`COLOR_LIT`) vs the normal gold (`COLOR_OFF`).
+
+## E3 Moving mini bumpers
+`scripts/mini_bumper.gd` (new, `AnimatableBody2D`, radius 16): patrols back and forth between
+`point_a`/`point_b` at `speed` px/s (ping-pong), same kick-on-contact + cooldown behaviour as
+`bumper.gd` but also imparts its own track velocity (`_velocity * 1.5`) into the kick impulse.
+Two placed over the (non-colliding) slot pit, clear of every other static/moving element:
+`(210,620)`↔`(300,620)` @ 70 px/s and `(370,700)`↔`(460,700)` @ 85 px/s. Both feed the plain
+`bumper` event (no bonus index) and are added to `table.new_bumpers`, so the existing
+`_scenario_new_bumpers` physics-smoke regression (fires a ball at each bumper's *current*
+position from `get_meta("approach")`, expects a `hit`) covers them automatically — each sets
+`set_meta("approach", Vector2(0,-1))` like the other pop bumpers.
+
+## Acceptance (Part E) — not yet run
+- E-A1 `run_tests.gd`: new `test_bonus_bumpers_multiplier` (lighting 1/2/3, re-hit no-op,
+  multiplier+points on all-3, bank reset, cap at 5, plain `bumper` event unaffected). All
+  previous tests unchanged/still green.
+- E-A2 `physics_smoke.gd`: existing `_scenario_new_bumpers` now also covers both mini bumpers
+  (no test file changes needed). Not yet verified: wing flippers physically launch a ball
+  (no new scenario added — recommend one firing a ball at each wing flipper's tip, expecting a
+  strong upward kick, before shipping).
+- E-A3 `godot --headless --path game --quit-after 600` -> no SCRIPT ERROR/ERROR (not yet run).
+- E-A4 manual play: wing flippers reachable and useful, bonus-bumper lamps track hits and clear
+  on the third, mini bumpers visibly patrol and kick the ball unpredictably.

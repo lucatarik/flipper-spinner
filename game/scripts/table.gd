@@ -18,6 +18,7 @@ const OrbitScript = preload("res://scripts/orbit.gd")
 const LightsScript = preload("res://scripts/lights.gd")
 const SlotScene = preload("res://scenes/slot.tscn")
 const RampScript = preload("res://scripts/ramp.gd")
+const MiniBumperScript = preload("res://scripts/mini_bumper.gd")
 
 const TEX_PLAYFIELD = preload("res://assets/playfield.jpg")
 const TEX_BUMPER = preload("res://assets/sprites/bumper.png")
@@ -52,6 +53,20 @@ const SIDE_BUMPERS := [
 const FLIPPER_LEFT_PIVOT := Vector2(214, 1110)
 const FLIPPER_RIGHT_PIVOT := Vector2(440, 1110)
 const PLUNGER_POS := Vector2(674, 1150)
+
+## Extra "wing" flipper pair, higher up in the open lanes either side of the slot
+## pit, fired together with the main flipper on their side (same buttons) so a
+## weak shot in the middle can be batted back up toward the bumpers/ramps instead
+## of draining straight down.
+const WING_FLIPPER_SCALE := 0.55
+const WING_LEFT_PIVOT := Vector2(160, 750)
+const WING_RIGHT_PIVOT := Vector2(560, 750)
+
+## Small bumpers that patrol back and forth over the (non-colliding) slot pit.
+const MINI_BUMPERS := [
+	{"a": Vector2(210, 620), "b": Vector2(300, 620), "speed": 70.0},
+	{"a": Vector2(370, 700), "b": Vector2(460, 700), "speed": 85.0},
+]
 
 const SLING_LEFT_POLY := [Vector2(75, 880), Vector2(75, 990), Vector2(165, 1037)]
 const SLING_LEFT_KICK := Vector2(0.868, -0.497)
@@ -98,6 +113,8 @@ var lights
 
 var left_flipper
 var right_flipper
+var wing_left_flipper
+var wing_right_flipper
 var plunger
 var scoop
 var target_bank
@@ -108,6 +125,8 @@ var ramps: Array = []
 var pop_bumpers: Array = []
 var side_bumpers: Array = []
 var new_bumpers: Array = []
+var mini_bumpers: Array = []
+var bonus_bumper_nodes: Array = []
 
 var _walls: StaticBody2D
 var _drain_area: Area2D
@@ -185,6 +204,7 @@ func _connect_rules() -> void:
 	rules.playfield_mult_changed.connect(_on_playfield_mult_changed)
 	rules.tilted_changed.connect(_on_tilted)
 	rules.state_changed.connect(_on_state_changed)
+	rules.bonus_bumpers_changed.connect(_on_bonus_bumpers_changed)
 
 func _physics_process(delta: float) -> void:
 	rules.tick(delta)
@@ -208,6 +228,8 @@ func _physics_process(delta: float) -> void:
 	if left != _left_down:
 		_left_down = left
 		left_flipper.set_pressed(left)
+		if wing_left_flipper:
+			wing_left_flipper.set_pressed(left)
 		if left:
 			_sfx_play("flipper")
 			rules.flip_lanes(-1)
@@ -215,6 +237,8 @@ func _physics_process(delta: float) -> void:
 	if right != _right_down:
 		_right_down = right
 		right_flipper.set_pressed(right)
+		if wing_right_flipper:
+			wing_right_flipper.set_pressed(right)
 		if right:
 			_sfx_play("flipper")
 			rules.flip_lanes(1)
@@ -250,12 +274,20 @@ func _input(event: InputEvent) -> void:
 				plunger.set_charging(true)
 			elif p.x < 360:
 				left_flipper.set_pressed(true)
+				if wing_left_flipper:
+					wing_left_flipper.set_pressed(true)
 			else:
 				right_flipper.set_pressed(true)
+				if wing_right_flipper:
+					wing_right_flipper.set_pressed(true)
 		else:
 			plunger.set_charging(false)
 			left_flipper.set_pressed(false)
 			right_flipper.set_pressed(false)
+			if wing_left_flipper:
+				wing_left_flipper.set_pressed(false)
+			if wing_right_flipper:
+				wing_right_flipper.set_pressed(false)
 			_touch_count = 0
 
 ## C4: table nudge. Rules decides whether the meter tolerates it; the table then
@@ -286,6 +318,10 @@ func _on_request_serve_ball() -> void:
 		left_flipper.set_disabled(false)
 	if right_flipper:
 		right_flipper.set_disabled(false)
+	if wing_left_flipper:
+		wing_left_flipper.set_disabled(false)
+	if wing_right_flipper:
+		wing_right_flipper.set_disabled(false)
 	if lights:
 		lights.set_tilt(false)
 	_slot_ready = false
@@ -414,10 +450,21 @@ func _toggle_music() -> void:
 		hud.set_music_enabled(on)
 	rules.message.emit("MUSIC ON" if on else "MUSIC OFF", 1.5)
 
-func _on_bumper_hit() -> void:
+func _on_bumper_hit(bonus_index: int = -1) -> void:
 	switch_hit.emit("bumper")
 	_sfx_play("bumper", randf_range(0.95, 1.06))
-	rules.on_event("bumper")
+	var data := {}
+	if bonus_index >= 0:
+		data["bonus_index"] = bonus_index
+	rules.on_event("bumper", data)
+
+func _on_bonus_bumpers_changed(lit: Array) -> void:
+	if lights:
+		lights.set_bonus_bumpers(lit)
+	for i in bonus_bumper_nodes.size():
+		var on: bool = i < lit.size() and bool(lit[i])
+		if bonus_bumper_nodes[i].has_method("set_lit"):
+			bonus_bumper_nodes[i].set_lit(on)
 
 func _on_sling_hit() -> void:
 	switch_hit.emit("sling")
@@ -607,8 +654,8 @@ func _add_polygon(poly: PackedVector2Array) -> void:
 	_walls.add_child(cp)
 
 func _build_bumpers() -> void:
-	for pos in BUMPER_POSITIONS:
-		_add_pop_bumper(pos, 30.0, 64.0, Vector2(0.0, -1.0), false)
+	for i in BUMPER_POSITIONS.size():
+		_add_pop_bumper(BUMPER_POSITIONS[i], 30.0, 64.0, Vector2(0.0, -1.0), false, i)
 	for pos in POP_BUMPER_POSITIONS:
 		_add_pop_bumper(pos, 26.0, 56.0, Vector2(0.0, -1.0), true)
 	for cfg in SIDE_BUMPERS:
@@ -621,20 +668,41 @@ func _build_bumpers() -> void:
 		sb.hit.connect(_on_bumper_hit)
 		side_bumpers.append(sb)
 		new_bumpers.append(sb)
+	_build_mini_bumpers()
 
-func _add_pop_bumper(pos: Vector2, radius: float, tex_px: float, approach: Vector2, is_new: bool) -> void:
+## `bonus_index` (0..2) marks the 3 central jungle bumpers as the "light them all"
+## bank: their hit signal is bound with their index so Rules can track which ones
+## are lit; -1 (the default) means a plain bumper with no bonus-index binding.
+func _add_pop_bumper(pos: Vector2, radius: float, tex_px: float, approach: Vector2, is_new: bool, bonus_index: int = -1) -> void:
 	var b := BumperScript.new()
 	b.radius = radius
 	b.position = pos
 	b.set_meta("approach", approach)
 	add_child(b)
-	b.hit.connect(_on_bumper_hit)
+	if bonus_index >= 0:
+		b.hit.connect(_on_bumper_hit.bind(bonus_index))
+		bonus_bumper_nodes.append(b)
+	else:
+		b.hit.connect(_on_bumper_hit)
 	pop_bumpers.append(b)
 	var spr := _add_sprite(TEX_BUMPER, Vector2.ZERO, tex_px / float(TEX_BUMPER.get_width()))
 	spr.reparent(b)
 	spr.position = Vector2.ZERO
 	if is_new:
 		new_bumpers.append(b)
+
+## Small mini bumpers that patrol back and forth over the (non-colliding) slot pit.
+func _build_mini_bumpers() -> void:
+	for cfg in MINI_BUMPERS:
+		var mb := MiniBumperScript.new()
+		mb.point_a = cfg["a"]
+		mb.point_b = cfg["b"]
+		mb.speed = cfg["speed"]
+		mb.set_meta("approach", Vector2(0.0, -1.0))
+		add_child(mb)
+		mb.hit.connect(_on_bumper_hit)
+		mini_bumpers.append(mb)
+		new_bumpers.append(mb)
 
 func _build_slingshots() -> void:
 	var left_poly := PackedVector2Array(SLING_LEFT_POLY)
@@ -657,6 +725,17 @@ func _build_flippers() -> void:
 	right_flipper.side = "right"
 	right_flipper.position = FLIPPER_RIGHT_PIVOT
 	add_child(right_flipper)
+
+	wing_left_flipper = FlipperScript.new()
+	wing_left_flipper.side = "left"
+	wing_left_flipper.size_scale = WING_FLIPPER_SCALE
+	wing_left_flipper.position = WING_LEFT_PIVOT
+	add_child(wing_left_flipper)
+	wing_right_flipper = FlipperScript.new()
+	wing_right_flipper.side = "right"
+	wing_right_flipper.size_scale = WING_FLIPPER_SCALE
+	wing_right_flipper.position = WING_RIGHT_PIVOT
+	add_child(wing_right_flipper)
 
 func _build_plunger() -> void:
 	plunger = PlungerScript.new()
@@ -709,6 +788,7 @@ func _build_lights() -> void:
 	add_child(lights)
 	lights.setup(self)
 	lights.set_lanes(rules.lanes)
+	lights.set_bonus_bumpers(rules.bonus_bumpers)
 	_refresh_target_lights()
 
 func _build_slot() -> void:
@@ -778,10 +858,18 @@ func _on_tilted() -> void:
 		left_flipper.set_pressed(false)
 	if right_flipper:
 		right_flipper.set_pressed(false)
+	if wing_left_flipper:
+		wing_left_flipper.set_pressed(false)
+	if wing_right_flipper:
+		wing_right_flipper.set_pressed(false)
 	if left_flipper:
 		left_flipper.set_disabled(true)
 	if right_flipper:
 		right_flipper.set_disabled(true)
+	if wing_left_flipper:
+		wing_left_flipper.set_disabled(true)
+	if wing_right_flipper:
+		wing_right_flipper.set_disabled(true)
 	_left_down = false
 	_right_down = false
 	if lights:

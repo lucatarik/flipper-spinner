@@ -7,12 +7,15 @@ signal hit
 
 const KICK_IMPULSE := 820.0
 const COOLDOWN_MS := 120
+const COLOR_OFF := Color("#ffcf5a")
+const COLOR_LIT := Color("#5bffa0")
 
 @export var radius := 30.0
 
 var _cooldowns := {}
 var _light: PointLight2D
 var _glow := 0.45
+var _lit := false
 
 func _ready() -> void:
 	collision_layer = 1
@@ -25,7 +28,7 @@ func _ready() -> void:
 
 	_light = PointLight2D.new()
 	_light.texture = Glow.radial_texture()
-	_light.color = Color("#ffcf5a")
+	_light.color = COLOR_OFF
 	_light.energy = _glow
 	_light.texture_scale = 2.2
 	add_child(_light)
@@ -41,6 +44,13 @@ func _ready() -> void:
 	detect.add_child(ds)
 	add_child(detect)
 	detect.body_entered.connect(_on_body)
+
+## Persistent "lit" state for the bonus-bumper bank: tints the glow green while lit,
+## independent of the transient hit flash.
+func set_lit(value: bool) -> void:
+	_lit = value
+	if _light:
+		_light.color = COLOR_LIT if _lit else COLOR_OFF
 
 func _on_body(body: Node) -> void:
 	var rb := body as RigidBody2D

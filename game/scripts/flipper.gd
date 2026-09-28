@@ -4,9 +4,9 @@ extends AnimatableBody2D
 ## (omega x r, at most once per swing per ball); at the top of the swing the bat is
 ## a solid static surface so a held flipper cradles the ball.
 
-const LENGTH := 96.0
-const PIVOT_RADIUS := 11.0
-const TIP_RADIUS := 7.0
+const BASE_LENGTH := 96.0
+const BASE_PIVOT_RADIUS := 11.0
+const BASE_TIP_RADIUS := 7.0
 const REST_ANGLE := deg_to_rad(28.0)
 const SWING_SPEED := 15.0       # rad/s while swinging
 const KICK_MULT := 1.15
@@ -15,6 +15,12 @@ const GOLD := Color("#d4a017")
 const DARK := Color("#3a2c0c")
 
 @export var side := "left"
+## Scales LENGTH/PIVOT_RADIUS/TIP_RADIUS for smaller "wing" flippers; 1.0 = full size.
+@export var size_scale := 1.0
+
+var LENGTH := BASE_LENGTH
+var PIVOT_RADIUS := BASE_PIVOT_RADIUS
+var TIP_RADIUS := BASE_TIP_RADIUS
 
 var _pressed := false
 var disabled := false
@@ -27,6 +33,9 @@ var _outline: Line2D
 var _hit_area: Area2D
 
 func _ready() -> void:
+	LENGTH = BASE_LENGTH * size_scale
+	PIVOT_RADIUS = BASE_PIVOT_RADIUS * size_scale
+	TIP_RADIUS = BASE_TIP_RADIUS * size_scale
 	collision_layer = 4
 	collision_mask = 0
 	_build_shape()
