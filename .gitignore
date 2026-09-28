@@ -1,0 +1,7 @@
+game/.godot/
+*.tmp
+__pycache__/
+docs/agent-work/**/*.jsonl
+docs/agent-work/**/*.status.json
+.claude/settings.local.json
+.env
