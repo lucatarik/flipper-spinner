@@ -52,6 +52,9 @@ Each result ends with "today ~X/10000 neurons": check it before planning more im
   `… batch assets.json`, `… generate "<prompt>" <path>`) and add the paths to "May change".
   Prefer generating key assets yourself during planning.
 - Always reference the path the tool reports back. Keep text out of images (render it in HTML/CSS).
+- Context budget: previews are images and stay in YOUR context for the whole session. Pass
+  `preview: false` when you don't need to judge the result (re-runs, backgrounds you already
+  approved, assets a worker will check); look only at what you must judge, once.
 `orchestra/asset_mcp.py check` diagnoses config/connection problems.
 
 ## 4. Dispatch (worker)
@@ -77,6 +80,9 @@ Worker "done" = ready for review. Read the report, then the real diff
 (`git diff <baseline>` + untracked files). Two lenses: spec compliance, then
 quality/security. Spot-check (run the tests once, try an edge case) — don't redo
 the worker's whole loop. Don't read the full JSONL log unless something is off.
+Keep review cheap on context: read files with offset/limit or grep for the lines you
+need instead of whole files; visual checks = one screenshot at reduced resolution or
+cropped to the area under review, never repeated full-size captures.
 
 ## 6. Correct (max 1 cycle)
 Batch ALL findings into `docs/agent-work/<feature>/T<n>.review-1.md`, then send them
