@@ -811,3 +811,70 @@ the ball itself gets while `on_ramp` (ball.gd, D2).
   bumpers flash bright + spit a small spark burst + visibly favour upward trajectories on
   hit from any angle; ramps read as an open wire rail with the playfield art visible
   underneath, not a solid painted track.
+
+---
+# Part L — user feedback round 10 (wing drag still broken, revert flipper length,
+# exploding bumpers, plunger-lane one-way gate)
+
+Also implemented by hand (no Godot/opencode in this sandbox), not run/verified headless.
+
+## L1 Wing flippers STILL wouldn't drag — second attempt, different root cause
+Part K's fix (bigger uniform click radius + nearest-match) apparently wasn't the real
+problem. New hypothesis: a flipper's *visible* bat is ~80-100px long from the pivot, so
+clicking the paddle body (the natural target) can land well outside even a 26px radius —
+the pivot itself was simply never where the user was clicking. Fixed properly this time:
+entries can now carry a per-entry `"radius"` (`layout_editor.gd` `setup()`/`_try_start_drag`
+both read it, falling back to the old global defaults when absent), and `table.gd` passes
+`WING_CLICK_RADIUS = 60` for all 4 wing entries specifically — both the hit-test tolerance
+and the drawn handle circle are now that big for wings, so the cyan circle visually covers
+most of the paddle instead of a tiny dot at the pivot. `_try_start_drag` also now compares
+by *fraction of each entry's own radius* (not raw distance) so a big and a small handle
+compete fairly for an ambiguous click instead of the bigger one always winning. Still not
+verified against an engine.
+
+## L2 Flipper length reverted
+`flipper.gd` `BASE_LENGTH` back to 96.0 (was 105.6) — the +10% length from Part K didn't
+feel right. This also shrinks every wing back down proportionally (same as how the
+lengthening applied to them), matching how the change was applied originally.
+
+## L3 Exploding bumpers (round AND mobile)
+`bumper.gd` and `mini_bumper.gd` both gained: a per-instance hit counter, a randomized
+explode threshold picked at `_ready()`/each respawn (`randi_range(5, 15)`), and a new
+`exploded` signal. On the hit that reaches the threshold: `_explode()` — a big one-shot
+`CPUParticles2D` burst (40 particles, separate from bumper.gd's small per-hit spark, reused
+from `mini_bumper.gd` too even though mini bumpers don't get the per-hit sparks from Part
+K), `visible = false`, collision disabled (`collision_layer = 0` + the Detect area's
+`monitoring = false`), and the `exploded` signal fires. `_respawn()` ~28-32s later
+("circa 30 secondi") restores visibility/collision, resets the hit counter and picks a
+fresh random threshold; `mini_bumper.gd` additionally resets to `point_a` (a mid-track
+pop-back-in would look wrong) and freezes its ping-pong motion entirely while gone
+(`_physics_process` early-returns).
+Rules: new event `bumper_explode` -> `_award(BUMPER_EXPLODE_POINTS = 25000)` + a message.
+table.gd wires both bumper types' `exploded` signal to one shared handler
+(`_on_bumper_exploded`): fires `rules.on_event("bumper_explode")`, plays the `jackpot` sfx
+(reused, no new asset needed), and triggers `lights.flash()` + `lights.shake()` for the
+"big moment" the user asked for.
+
+## L4 Plunger lane one-way gate
+User request: a ball launched up and out of the shooter lane must always be able to leave,
+but a ball that rolls back down toward the lane from the main playfield shouldn't be able
+to re-enter it — asked for either an invisible wall or a closing door. Used neither
+literally: Godot's `CollisionShape2D.one_way_collision` is exactly a "one-way platform"
+primitive (solid only against a body landing/falling onto it from one side, passed through
+freely from the other) — the same mechanic as a platformer's jump-through floor. A single
+thin (12px) `RectangleShape2D` spanning the lane's width (divider x=634 to outer wall
+x=700), placed at y=430 where both lane walls begin (`table._build_lane_gate()`, called
+right after `_build_walls()`), with `one_way_collision = true` and a 14px margin. No new
+node type, no custom physics, no change to the existing serve/launch flow (`SERVE_POS` and
+the plunger are both well below y=430, unaffected).
+
+## Acceptance (Part L) — not yet run
+- L-A1 `run_tests.gd`: new assertion for `bumper_explode` scoring (`BUMPER_EXPLODE_POINTS`).
+  All earlier tests should be unaffected.
+- L-A2 manual play (the one that matters, especially L1 which failed once already and L4
+  which is genuinely new physics): wing flippers actually drag now, with a visibly bigger
+  cyan handle; flipper length looks like the original; round and mobile bumpers explode
+  after a handful of hits (visibly random, not always the same count), pay a big bonus,
+  vanish and come back roughly half a minute later; a ball can always launch out of the
+  shooter lane but a ball rolling toward it from the field stops at the gate instead of
+  sliding back in.

@@ -22,7 +22,9 @@ material from either source.
 - A bank of **"bonus bumpers"**: light all three and you get a bonus multiplier plus
   flat points — then the bank resets so you can do it again.
 - **Moving mini bumpers** that patrol back and forth over the middle of the table,
-  so the bounce is never quite where you expect.
+  so the bounce is never quite where you expect. Both these and the round pop
+  bumpers **explode** after a random 5-15 hits — a big bonus, a burst of fire,
+  then they vanish for about 30 seconds before coming back.
 - **Vortex holes**: sucker pits that grab the ball, hold it for a couple of seconds
   while the rim spins and glows, then fire it hard back up the table.
 - **Soft floating bonuses**: glowing Egyptian icons (emerald, scarab, ankh) that

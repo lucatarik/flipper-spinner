@@ -4,9 +4,10 @@ extends AnimatableBody2D
 ## (omega x r, at most once per swing per ball); at the top of the swing the bat is
 ## a solid static surface so a held flipper cradles the ball.
 
-## Base 96.0, +10% (user request): flipper reach, including all wings via
-## size_scale, scales off this.
-const BASE_LENGTH := 105.6
+## Reverted back to the original 96.0 (user request: a +10% length change did
+## not feel right — "long like before"). Every flipper (main + all wings)
+## scales off this via size_scale.
+const BASE_LENGTH := 96.0
 const BASE_PIVOT_RADIUS := 11.0
 const BASE_TIP_RADIUS := 7.0
 const REST_ANGLE := deg_to_rad(28.0)

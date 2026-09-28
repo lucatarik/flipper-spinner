@@ -41,19 +41,23 @@ func _ready() -> void:
 	layer.add_child(_label)
 
 ## `list` = the entries built by table.gd, each a Dictionary with "name" and
-## "get"/"set" Callables (no args -> Vector2, and Vector2 -> void).
+## "get"/"set" Callables (no args -> Vector2, and Vector2 -> void), plus an
+## optional "radius" (click tolerance AND drawn handle size — a long object
+## like a flipper needs a much bigger one than a small round bumper, since
+## the natural click target is the whole visible shape, not just its pivot).
 func setup(list: Array) -> void:
 	entries = list
 	for h in _handles:
 		h.queue_free()
 	_handles.clear()
-	for _e in entries:
+	for e in entries:
+		var r: float = float(e.get("radius", HANDLE_RADIUS))
 		var h := Polygon2D.new()
 		var pts := PackedVector2Array()
 		var n := 8
 		for i in n:
 			var a := TAU * float(i) / float(n)
-			pts.append(Vector2(cos(a), sin(a)) * HANDLE_RADIUS)
+			pts.append(Vector2(cos(a), sin(a)) * r)
 		h.polygon = pts
 		h.color = HANDLE_COLOR
 		h.visible = active
@@ -81,17 +85,21 @@ func _input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion and _drag_index >= 0:
 		entries[_drag_index]["set"].call(get_global_mouse_position())
 
-## Picks the CLOSEST handle within CLICK_RADIUS, not just the first match, so
-## two nearby handles don't fight over an ambiguous click.
+## Picks the CLOSEST handle whose own (possibly per-entry) radius the click
+## falls within, not just the first match, so two nearby handles don't fight
+## over an ambiguous click. Distance is measured as a fraction of that
+## handle's radius so a big handle (flipper) and a small one (bumper) compete
+## fairly instead of the bigger one always winning ties.
 func _try_start_drag(world_pos: Vector2) -> void:
 	var best := -1
-	var best_dist := CLICK_RADIUS
+	var best_frac := 1.0
 	for i in entries.size():
+		var r: float = float(entries[i].get("radius", CLICK_RADIUS))
 		var p: Vector2 = entries[i]["get"].call()
-		var d: float = world_pos.distance_to(p)
-		if d <= best_dist:
+		var frac: float = world_pos.distance_to(p) / r
+		if frac <= best_frac:
 			best = i
-			best_dist = d
+			best_frac = frac
 	if best >= 0:
 		_drag_index = best
 		_handles[best].color = HANDLE_DRAG_COLOR

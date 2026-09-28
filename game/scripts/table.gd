@@ -218,6 +218,7 @@ func _ready() -> void:
 	_build_background()
 	_build_decor()
 	_build_walls()
+	_build_lane_gate()
 	_build_bumpers()
 	_build_slingshots()
 	_build_flippers()
@@ -611,6 +612,14 @@ func _on_bumper_hit(bonus_index: int = -1) -> void:
 		data["bonus_index"] = bonus_index
 	rules.on_event("bumper", data)
 
+func _on_bumper_exploded() -> void:
+	switch_hit.emit("bumper_explode")
+	_sfx_play("jackpot")
+	rules.on_event("bumper_explode")
+	if lights:
+		lights.flash()
+		lights.shake()
+
 func _on_bonus_bumpers_changed(lit: Array) -> void:
 	if lights:
 		lights.set_bonus_bumpers(lit)
@@ -816,6 +825,29 @@ func _build_walls() -> void:
 	for x in LANE_POST_XS:
 		_add_band(Vector2(x, LANE_TOP), Vector2(x, LANE_BOTTOM), 10.0)
 
+## One-way gate at the top of the shooter lane (user request): a ball launched
+## up and OUT of the lane must always pass, but a ball rolling back down INTO
+## the lane from the main playfield should not be able to re-enter it. This is
+## exactly the standard "one-way platform" behaviour Godot already supports
+## (CollisionShape2D.one_way_collision blocks only the downward/landing side,
+## same as a jump-through platform) — no custom physics needed, just one thin
+## shape placed where the lane meets the dome (divider ends x=634, outer wall
+## x=700, both starting at y=420-430).
+func _build_lane_gate() -> void:
+	var gate := StaticBody2D.new()
+	gate.name = "LaneGate"
+	gate.collision_layer = 1
+	gate.collision_mask = 0
+	add_child(gate)
+	var cs := CollisionShape2D.new()
+	var rect := RectangleShape2D.new()
+	rect.size = Vector2(OUTER_RIGHT_INNER - DIVIDER_INNER, 12.0)
+	cs.shape = rect
+	cs.position = Vector2((DIVIDER_INNER + OUTER_RIGHT_INNER) * 0.5, 430.0)
+	cs.one_way_collision = true
+	cs.one_way_collision_margin = 14.0
+	gate.add_child(cs)
+
 func _add_arc_band() -> void:
 	var inner := PackedVector2Array()
 	var outer := PackedVector2Array()
@@ -882,6 +914,7 @@ func _add_pop_bumper(pos: Vector2, radius: float, tex_px: float, approach: Vecto
 		bonus_bumper_nodes.append(b)
 	else:
 		b.hit.connect(_on_bumper_hit)
+	b.exploded.connect(_on_bumper_exploded)
 	pop_bumpers.append(b)
 	var spr := _add_sprite(TEX_BUMPER, Vector2.ZERO, tex_px / float(TEX_BUMPER.get_width()))
 	spr.reparent(b)
@@ -899,6 +932,7 @@ func _build_mini_bumpers() -> void:
 		mb.set_meta("approach", Vector2(0.0, -1.0))
 		add_child(mb)
 		mb.hit.connect(_on_bumper_hit)
+		mb.exploded.connect(_on_bumper_exploded)
 		mini_bumpers.append(mb)
 		new_bumpers.append(mb)
 
@@ -1021,12 +1055,18 @@ func _build_layout_editor() -> void:
 	add_child(_layout_editor)
 	_layout_editor.setup(_layout_entries)
 
+## Flippers get a much bigger click radius than everything else: the visible
+## bat extends ~80-100px from the pivot, so that's the natural click target,
+## not the small pivot point itself (this is why dragging them never worked
+## with the generic radius used for small round objects).
+const WING_CLICK_RADIUS := 60.0
+
 func _build_layout_entries() -> void:
 	_layout_entries = []
-	_add_layout_pos("wing_left", wing_left_flipper)
-	_add_layout_pos("wing_right", wing_right_flipper)
-	_add_layout_pos("wing_top_left", wing_top_left_flipper)
-	_add_layout_pos("wing_right_wall", wing_right_wall_flipper)
+	_add_layout_pos("wing_left", wing_left_flipper, WING_CLICK_RADIUS)
+	_add_layout_pos("wing_right", wing_right_flipper, WING_CLICK_RADIUS)
+	_add_layout_pos("wing_top_left", wing_top_left_flipper, WING_CLICK_RADIUS)
+	_add_layout_pos("wing_right_wall", wing_right_wall_flipper, WING_CLICK_RADIUS)
 	_add_layout_pos("side_bumper_left", side_bumpers[0])
 	_add_layout_pos("side_bumper_right", side_bumpers[1])
 	for i in vortex_holes.size():
@@ -1039,12 +1079,15 @@ func _build_layout_entries() -> void:
 	for i in _soft_spot_markers.size():
 		_add_layout_pos("soft_spot_%d" % i, _soft_spot_markers[i])
 
-func _add_layout_pos(entry_name: String, node: Node2D) -> void:
-	_layout_entries.append({
+func _add_layout_pos(entry_name: String, node: Node2D, radius: float = -1.0) -> void:
+	var e := {
 		"name": entry_name,
 		"get": func(): return node.position,
 		"set": func(v): node.position = v,
-	})
+	}
+	if radius > 0.0:
+		e["radius"] = radius
+	_layout_entries.append(e)
 
 func _add_layout_field(entry_name: String, obj: Object, field: String) -> void:
 	_layout_entries.append({

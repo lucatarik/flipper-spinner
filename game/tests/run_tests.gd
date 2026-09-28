@@ -125,6 +125,9 @@ func test_award_values() -> void:
 	base = r.score
 	r.on_event("vortex")
 	expect(r.score - base == RulesScript.VORTEX_POINTS, "vortex hole points")
+	base = r.score
+	r.on_event("bumper_explode")
+	expect(r.score - base == RulesScript.BUMPER_EXPLODE_POINTS, "bumper explode bonus")
 
 func test_soft_bonus() -> void:
 	var r = _new_started()

@@ -39,6 +39,9 @@ const BONUS_BUMPER_POINTS := 10000
 const VORTEX_POINTS := 3000
 const SOFT_BONUS_POINTS := 7500
 const SOFT_BONUS_BALL_SAVE := 8.0
+## Round/mobile bumpers "explode" after 5-15 hits (their own randomized
+## threshold), pay this big bonus, vanish and come back ~30s later.
+const BUMPER_EXPLODE_POINTS := 25000
 
 const MODES := [
 	{"name": "WELL OF SOULS", "event": "bumper", "goal": 15},
@@ -189,6 +192,9 @@ func on_event(name: String, data: Dictionary = {}) -> void:
 			_award(VORTEX_POINTS)
 		"soft_bonus":
 			_on_soft_bonus(String(data.get("kind", "points")))
+		"bumper_explode":
+			_award(BUMPER_EXPLODE_POINTS)
+			message.emit("BUMPER EXPLODED +%d" % BUMPER_EXPLODE_POINTS, 2.0)
 		"plunger_exit":
 			_on_plunger_exit()
 		"drain":
