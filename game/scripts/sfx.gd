@@ -74,7 +74,7 @@ func _free_player() -> AudioStreamPlayer:
 	return _pool[0]
 
 func play(sfx_name: String, pitch := 1.0, db := 0.0) -> void:
-	if not _audio_enabled:
+	if not _audio_enabled or not _music_enabled:
 		return
 	var s := _get_stream(sfx_name)
 	if s == null:
@@ -87,7 +87,7 @@ func play(sfx_name: String, pitch := 1.0, db := 0.0) -> void:
 	p.play()
 
 func loop_start(sfx_name: String) -> void:
-	if not _audio_enabled or _loops.has(sfx_name):
+	if not _audio_enabled or not _music_enabled or _loops.has(sfx_name):
 		return
 	var s := _get_stream(sfx_name)
 	if s == null:
@@ -118,7 +118,9 @@ func loop_stop(sfx_name: String) -> void:
 func is_music_enabled() -> bool:
 	return _music_enabled
 
-## D4: mute/unmute MUSIC only (SFX keep playing). Persisted in user://settings.cfg.
+## Mute/unmute ALL audio, music and SFX together (user request — originally
+## music-only, D4). Persisted in user://settings.cfg under the same "music"
+## key as before, name kept for API/save-file compatibility.
 func set_music_enabled(on: bool) -> void:
 	if on == _music_enabled:
 		return
@@ -129,6 +131,10 @@ func set_music_enabled(on: bool) -> void:
 	if not on:
 		for p in _music:
 			_fade_out(p)
+		for p in _pool:
+			p.stop()
+		for loop_name in _loops.keys().duplicate():
+			loop_stop(String(loop_name))
 	elif _current_track != "":
 		_start_track(_current_track)
 

@@ -57,10 +57,16 @@ const EXPAND_MIN: Dictionary = {
 }
 
 ## Per-cell symbol weights (identical for every reel). Each of the 15 cells is an
-## independent weighted draw; tuned by simulation to the spec target math
-## (hit 25-45 %, free spins 1/60-1/150, avg 6-14 credits per spin).
+## independent weighted draw; originally tuned by simulation to the spec target
+## math (hit 25-45 %, free spins 1/60-1/150, avg 6-14 credits per spin).
+## "book" bumped 3 -> 3.45 (+15%, user request: "aumenta la possibilità di
+## bonus di un 15%") — book is the wild/scatter that substitutes on every
+## line, so more of it raises the odds of completing a 3+ run (any bonus-
+## paying symbol) across the board rather than favouring one symbol over
+## another. NOT re-verified against the 20000-spin `test_slot_target_math`
+## bounds (no engine here) — run it before trusting this is still in range.
 const WEIGHTS: Dictionary = {
-	"book": 3, "explorer": 3, "pharaoh": 3, "anubis": 3, "scarab": 5,
+	"book": 3.45, "explorer": 3, "pharaoh": 3, "anubis": 3, "scarab": 5,
 	"eye": 12, "ankh": 12, "pyramid": 20, "feather": 20, "emerald": 20,
 }
 

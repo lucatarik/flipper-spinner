@@ -878,3 +878,107 @@ the plunger are both well below y=430, unaffected).
   vanish and come back roughly half a minute later; a ball can always launch out of the
   shooter lane but a ball rolling toward it from the field stops at the gate instead of
   sliding back in.
+
+---
+# Part M — user feedback round 11 (bake layout, 3rd wing-drag attempt, audio mute,
+# dirt-pit holes, flipper size/position, retro decor, slot scale/bugfix/tuning)
+
+Also implemented by hand (no Godot/opencode in this sandbox), not run/verified headless.
+Biggest batch yet — see M8 for what was deliberately NOT attempted this round.
+
+## M1 layout_overrides.json baked into the real consts, file removed
+Every position the user tuned in the layout editor (`BUMPER_POSITIONS`, `POP_BUMPER_POSITIONS`,
+`SIDE_BUMPERS`, `MINI_BUMPERS`, `VORTEX_HOLES`, `SOFT_BONUS_SPOTS` — all in table.gd) now holds
+those values directly (rounded to whole px); `game/layout_overrides.json` deleted. The wing
+entries were left untouched since they never actually moved (see M2) — no override values to
+bake for those.
+
+## M2 Wing flippers — 3rd attempt: switched from event-driven to polled dragging
+New, more diagnostic symptom this time: the click DOES register (handle highlights, matching
+Part L's bigger-radius fix), but dragging does nothing — "as if planted in the ground". That
+rules out hit-detection and points at `InputEventMouseMotion` specifically not updating
+`.position` reliably while the tree is paused, for reasons not fully diagnosable without an
+engine (AnimatableBody2D + sync_to_physics interacting with paused physics is the leading
+theory, but every other draggable type in this table is *also* a mix of StaticBody2D/
+AnimatableBody2D and worked, so it isn't simply "AnimatableBody2D doesn't work"). Rather than
+guess further, `layout_editor.gd` no longer relies on motion events at all: `_input()` now only
+starts a drag (mouse-down) and reports E/S; a new `_drag_update()` is polled every frame from
+the already-proven-working `_process()` (proven because handle-follow and the label text update
+through it every frame, active-mode gated same as before) — it directly reads
+`Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)` and `get_global_mouse_position()` instead of
+waiting for a motion event. This is a fundamentally different code path from the two previous
+attempts, not just a bigger number — if this ALSO doesn't move the wings, the bug is genuinely
+in `.position =` not sticking on a Flipper specifically, which would need engine-side
+inspection (print statements / the Godot debugger) that isn't possible from this sandbox.
+
+## M3 Audio mute now covers SFX too
+`sfx.gd`: `play()` and `loop_start()` now also gate on `_music_enabled` (renamed in comments
+only — the persisted settings key and method names are unchanged for compatibility).
+`set_music_enabled(false)` additionally stops every pool player immediately and tears down
+active loops, not just fading the music out — so toggling audio off silences everything at
+once, not just future music.
+
+## M4 Vortex holes redrawn as dirt pits, not "black holes"
+`kickback_hole.gd`: replaced the flat near-black circle + spinning neon-purple ring with a
+jagged earthy mound (irregular polygon rings, `_jagged_circle()` jitters each vertex so every
+hole looks slightly different) in browns/tans, a dark (not black) pit centre, and a scatter of
+small rock/clump shapes around the rim. Glow recoloured from neon purple to warm amber
+(torch-lit look) and only pulses while actively holding a ball, no longer spins constantly at
+idle — reads as "something dug in the ground", matching the Indiana Jones/temple theme. No art
+assets used/fetched (none available in this sandbox) — everything is procedural Polygon2D, the
+same technique already used throughout this project.
+
+## M5 Flipper length +20%, position lowered (partially), main flippers now draggable too
+`flipper.gd` `BASE_LENGTH`: 96 -> (a +10% detour, reverted) -> 115.2 (+20% over the original,
+user's final call after trying the revert). `table.gd` `FLIPPER_LEFT_PIVOT`/`_RIGHT_PIVOT`
+lowered by 20px (1110 -> 1130) — NOT the literal "4% from the bottom edge" the user described
+(~1229), because that lands inside the drain zone (y 1215-1280, same x range as the main
+flippers) and would break drain detection. Both main flippers are now also registered in the
+layout editor (`flipper_left`/`flipper_right`, same big click radius as the wings) specifically
+so the user can push them further down themselves and see the result live, rather than me
+guessing blindly at a value that risks breaking the drain.
+
+## M6 Retro decoration in the freed space
+New `scripts/retro_arrows.gd`: a small 3-chevron "shoot here" chase (classic GI-insert flavour
+from 70s/80s tables), purely decorative (no collision at all). Two instances placed above the
+lowered flippers (`table._build_retro_arrows()`).
+
+## M7 Slot: +25% display size, a real overlap bug fixed, sharper win lines, bonus tuning
+- Size: `table._build_slot()` now sets `slot.scale = 1.25` with a compensating `position`
+  offset (`window_center * (1 - scale)`) so the display grows in place around the reel
+  window's own centre instead of drifting away from it.
+- **Real bug found**: each reel keeps `ROWS+1` (4) symbol holders — one spare only needed for
+  smooth scrolling. `_draw_reel_static()` only ever repositioned/hid the first 3, so the 4th
+  stayed visible wherever the last scroll frame left it once the reel stopped — an intermittent
+  ghost symbol overlapping the real ones. This is almost certainly what "a volte le figure si
+  sovrappongono" was — fixed by explicitly hiding index >= ROWS every static draw.
+  `_cell_centre()`'s math for win-line points was already exactly correct (verified by hand
+  against how the reel holders are actually positioned) — the "imprecise" look was the 5px
+  non-antialiased line plus loose diagonal-corner "X" tick marks; now a 3px antialiased line
+  (`Line2D.antialiased = true`) with a small centred filled dot per cell instead.
+- Bonus probability: `slot_machine.gd` `WEIGHTS["book"]` 3 -> 3.45 (+15%) — book is the
+  wild/scatter that substitutes on every payline, so more of it raises the odds of completing
+  *any* 3+ bonus-paying run rather than favouring one symbol. **Not re-verified** against
+  `test_slot_target_math`'s 20000-spin bounds (hit 25-45%, free spins 1/60-150, avg 6-14
+  credits) — no engine here to run it; this is the single highest-risk numeric change in this
+  batch precisely because it's the one place a wrong guess is well-defined as "test fails".
+
+## M8 Deliberately NOT attempted this round: the ramp geometry redesign
+The user also asked to lengthen the central ramp into a figure-8 around "the oracle" up top,
+and make the other ramp trace the full dome arc before dropping the ball near the centre
+between the flippers. Every other change in this batch is either a value tweak, a self-
+contained visual rewrite, or additive — this one is a full redesign of a `PackedVector2Array`
+centreline that a real ball has to physically ride (`ramp.gd`'s along-path physics), with nothing
+to check it against. Attempting it blind risks a ramp that clips a wall, crosses another
+ramp/feature, or leaves the ball stuck — on top of an already large, entirely unverified batch
+in this one turn. Flagged to the user rather than guessed at; will do it as its own focused pass.
+
+## Acceptance (Part M) — not yet run
+- M-A1 no Rules changes; all earlier tests unaffected, EXCEPT possibly `test_slot_target_math`
+  (see M7) — run this one specifically first.
+- M-A2 manual play, in priority order: (1) wings — do they drag now, with the new polling
+  approach? (2) slot — no more ghost/overlapping symbols after a spin stops, win lines look
+  exactly centred on the symbols, display is visibly ~25% bigger without drifting off-centre;
+  (3) toggling audio off silences sound effects immediately, not just music; (4) vortex holes
+  look like dirt pits, not glowing orbs/black holes; (5) flippers noticeably longer, main
+  flippers draggable in edit mode; (6) chevron chase visible and animating above the flippers.

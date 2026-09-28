@@ -25,8 +25,8 @@ material from either source.
   so the bounce is never quite where you expect. Both these and the round pop
   bumpers **explode** after a random 5-15 hits — a big bonus, a burst of fire,
   then they vanish for about 30 seconds before coming back.
-- **Vortex holes**: sucker pits that grab the ball, hold it for a couple of seconds
-  while the rim spins and glows, then fire it hard back up the table.
+- **Vortex holes**: dug-earth pits that grab the ball, hold it for a couple of
+  seconds with a warm amber glow, then fire it hard back up the table.
 - **Soft floating bonuses**: glowing Egyptian icons (emerald, scarab, ankh) that
   appear at random spots and grant a bonus (points, a multiplier bump, or a
   ball save) on touch — they have no collision at all, so the ball just rolls

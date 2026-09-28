@@ -336,21 +336,31 @@ func _update_show_win(delta: float) -> void:
 		_state = STATE_IDLE
 		_timer = IDLE_SECONDS
 
+## Points come straight from _cell_centre (exact cell-centre coordinates), so
+## the line was already mathematically correct — what read as "imprecise"
+## (user report) was the soft, non-antialiased 5px stroke and loose diagonal
+## corner-to-corner "X" markers not actually centred-looking on the symbol.
+## Thinner antialiased line + a small centred filled dot per cell instead.
 func _draw_win_line(line: Dictionary) -> void:
 	for child in _win_line_layer.get_children():
 		child.queue_free()
 	var pts: Array = line["points"]
 	var shape := Line2D.new()
 	shape.points = PackedVector2Array(pts)
-	shape.width = 5.0
+	shape.width = 3.0
+	shape.antialiased = true
 	shape.default_color = _line_colour(int(line["line"]))
 	_win_line_layer.add_child(shape)
 	for p in pts:
-		var dot := Line2D.new()
-		var v: Vector2 = p
-		dot.points = PackedVector2Array([v + Vector2(-5, -5), v + Vector2(5, 5)])
-		dot.width = 2.0
-		dot.default_color = Color(1, 1, 1, 0.55)
+		var dot := Polygon2D.new()
+		var dot_pts := PackedVector2Array()
+		var n := 12
+		for i in n:
+			var a := TAU * float(i) / float(n)
+			dot_pts.append(Vector2(cos(a), sin(a)) * 4.0)
+		dot.polygon = dot_pts
+		dot.position = p
+		dot.color = Color(1, 1, 1, 0.85)
 		_win_line_layer.add_child(dot)
 
 func _line_colour(i: int) -> Color:
@@ -391,8 +401,15 @@ func _draw_reel_scroll(reel: int) -> void:
 func _draw_reel_static(reel: int, grid: Array) -> void:
 	var holders: Array = _reel_textures[reel]
 	var is_expanded: bool = reel in _expanded
-	for row in ROWS:
+	# holders.size() is ROWS+1 (one spare for smooth scrolling) — the spare one
+	# was being left visible wherever the scroll last placed it, showing as a
+	## overlapping "ghost" symbol once the reel stopped (user report: symbols
+	## sometimes overlap). Hide anything past ROWS explicitly here.
+	for row in holders.size():
 		var holder: Node2D = holders[row]
+		if row >= ROWS:
+			holder.visible = false
+			continue
 		var sym := "book"
 		if is_expanded:
 			sym = slot.special_symbol

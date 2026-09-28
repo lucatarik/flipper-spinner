@@ -20,6 +20,7 @@ const SlotScene = preload("res://scenes/slot.tscn")
 const RampScript = preload("res://scripts/ramp.gd")
 const MiniBumperScript = preload("res://scripts/mini_bumper.gd")
 const KickbackHoleScript = preload("res://scripts/kickback_hole.gd")
+const RetroArrowsScript = preload("res://scripts/retro_arrows.gd")
 const SoftBonusScript = preload("res://scripts/floating_bonus.gd")
 const LayoutEditorScript = preload("res://scripts/layout_editor.gd")
 
@@ -47,17 +48,24 @@ const STUCK_SECONDS := 2.0
 const STUCK_MAX_NUDGES := 3
 const STUCK_NUDGE_SPEED := 350.0
 
-const BUMPER_POSITIONS := [Vector2(240, 430), Vector2(420, 430), Vector2(330, 495)]
-const POP_BUMPER_POSITIONS := [Vector2(150, 330), Vector2(510, 330)]
-## Left one raised 15px (860->845), right one raised 25px (820->795): balls
-## were getting wedged against them (user report; right one was worse — "the
-## ball doesn't pass at all" — hence the bigger move).
+## Positions baked in from the user's layout-editor session (was
+## game/layout_overrides.json, now removed — these ARE the source of truth).
+const BUMPER_POSITIONS := [Vector2(257, 376), Vector2(487, 393), Vector2(361, 440)]
+const POP_BUMPER_POSITIONS := [Vector2(248, 226), Vector2(502, 250)]
 const SIDE_BUMPERS := [
-	{"pos": Vector2(20, 845), "normal": Vector2.RIGHT},
-	{"pos": Vector2(634, 795), "normal": Vector2.LEFT},
+	{"pos": Vector2(70, 760), "normal": Vector2.RIGHT},
+	{"pos": Vector2(619, 821), "normal": Vector2.LEFT},
 ]
-const FLIPPER_LEFT_PIVOT := Vector2(214, 1110)
-const FLIPPER_RIGHT_PIVOT := Vector2(440, 1110)
+## Lowered 20px (user request: "abbassa le palette... fino al 4% del bordo
+## inferiore"). A literal reading of "4% from the bottom edge" (~51px, putting
+## the pivot at y~1229) would land INSIDE the drain zone (y 1215-1280, same x
+## range as these flippers) — that would break drain detection, so this is a
+## safer partial move (~31px clearance to DRAIN_TOP at rest with the now-20%-
+## longer flipper). Both main flippers are now draggable in the layout editor
+## (E) too, so push further yourself if this isn't low enough — watch the
+## drain gap between the tips if you do.
+const FLIPPER_LEFT_PIVOT := Vector2(214, 1130)
+const FLIPPER_RIGHT_PIVOT := Vector2(440, 1130)
 const PLUNGER_POS := Vector2(674, 1150)
 
 ## Extra "wing" flipper pair, higher up in the open lanes either side of the slot
@@ -88,23 +96,22 @@ const WING_RIGHT_WALL_PIVOT := Vector2(620, 745)
 
 ## Small bumpers that patrol back and forth over the (non-colliding) slot pit.
 const MINI_BUMPERS := [
-	{"a": Vector2(210, 620), "b": Vector2(300, 620), "speed": 70.0},
-	{"a": Vector2(370, 700), "b": Vector2(460, 700), "speed": 85.0},
+	{"a": Vector2(210, 620), "b": Vector2(150, 393), "speed": 70.0},
+	{"a": Vector2(510, 495), "b": Vector2(512, 539), "speed": 85.0},
 ]
 
 ## "Vortex" sucker holes: open pits over the same non-colliding slot pit, clear of
-## both mini-bumper tracks and the wing flippers (40+ px margin either way).
-const VORTEX_HOLES := [Vector2(335, 660), Vector2(250, 750)]
+## both mini-bumper tracks and the wing flippers.
+const VORTEX_HOLES := [Vector2(142, 504), Vector2(491, 471)]
 
 ## "Soft" bonus pickups: no collision (the ball rolls straight through), appear
 ## one at a time at a random spot from this list, grant a small bonus on touch
-## or expire after a while. Spots are picked to stay clear of walls/bumpers/
-## targets/ramps (see docs/agent-work/pinball/spec.md Part G).
+## or expire after a while.
 const SOFT_BONUS_SPOTS := [
-	Vector2(270, 380), Vector2(450, 380),
-	Vector2(180, 700), Vector2(550, 700),
-	Vector2(400, 620),
-	Vector2(270, 950), Vector2(420, 950),
+	Vector2(303, 104), Vector2(480, 387),
+	Vector2(209, 499), Vector2(276, 468),
+	Vector2(553, 391),
+	Vector2(294, 897), Vector2(390, 858),
 ]
 const SOFT_BONUS_MIN_DELAY := 7.0
 const SOFT_BONUS_MAX_DELAY := 14.0
@@ -989,6 +996,18 @@ func _build_flippers() -> void:
 	wing_right_wall_flipper.position = WING_RIGHT_WALL_PIVOT
 	add_child(wing_right_wall_flipper)
 
+	_build_retro_arrows()
+
+## Decorative "shoot here" chevron chase in the space freed by lowering the
+## main flippers (user request) — purely visual, no collision.
+func _build_retro_arrows() -> void:
+	var left_arrows := RetroArrowsScript.new()
+	left_arrows.position = Vector2(175, 1015)
+	add_child(left_arrows)
+	var right_arrows := RetroArrowsScript.new()
+	right_arrows.position = Vector2(475, 1015)
+	add_child(right_arrows)
+
 func _build_plunger() -> void:
 	plunger = PlungerScript.new()
 	plunger.position = PLUNGER_POS
@@ -1063,6 +1082,8 @@ const WING_CLICK_RADIUS := 60.0
 
 func _build_layout_entries() -> void:
 	_layout_entries = []
+	_add_layout_pos("flipper_left", left_flipper, WING_CLICK_RADIUS)
+	_add_layout_pos("flipper_right", right_flipper, WING_CLICK_RADIUS)
 	_add_layout_pos("wing_left", wing_left_flipper, WING_CLICK_RADIUS)
 	_add_layout_pos("wing_right", wing_right_flipper, WING_CLICK_RADIUS)
 	_add_layout_pos("wing_top_left", wing_top_left_flipper, WING_CLICK_RADIUS)
@@ -1105,10 +1126,20 @@ func _apply_layout_overrides() -> void:
 		if saved is Array and saved.size() == 2:
 			entry["set"].call(Vector2(float(saved[0]), float(saved[1])))
 
+## SLOT_SCALE enlarges the whole slot display 25% (user request). slot_view.gd's
+## WINDOW rect (170,590,320,192) is defined in the slot's own local space, so
+## scaling the node also shifts everything away from (0,0) — offsetting
+## `position` by `window_center * (1 - SLOT_SCALE)` keeps the window centred
+## on the exact same spot instead of drifting down-right.
+const SLOT_SCALE := 1.25
+const SLOT_WINDOW_CENTER := Vector2(330.0, 686.0)
+
 func _build_slot() -> void:
 	slot = SlotScene.instantiate()
 	slot.name = "Slot"
 	slot.z_index = 2
+	slot.scale = Vector2(SLOT_SCALE, SLOT_SCALE)
+	slot.position = SLOT_WINDOW_CENTER * (1.0 - SLOT_SCALE)
 	add_child(slot)
 	slot.setup(self, _sfx)
 	slot.cycle_finished.connect(_on_slot_cycle_finished)

@@ -75,15 +75,26 @@ func _input(event: InputEvent) -> void:
 			return
 	if not active:
 		return
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
-		if event.pressed:
-			_try_start_drag(get_global_mouse_position())
-		else:
-			if _drag_index >= 0:
-				_handles[_drag_index].color = HANDLE_COLOR
-			_drag_index = -1
-	elif event is InputEventMouseMotion and _drag_index >= 0:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		_try_start_drag(get_global_mouse_position())
+	# Motion is handled by polling in _process (see _drag_update), not here:
+	# InputEventMouseMotion delivery while the tree is paused turned out to be
+	# unreliable for at least some node types (wing flippers stayed put even
+	# though the click-start highlight worked fine) — continuous polling in an
+	# ALWAYS-mode _process is the same mechanism already proven to work every
+	# frame for the handle-follow and label update below, so it sidesteps
+	# whatever the event-delivery issue was instead of chasing it further.
+
+## Polled every frame instead of driven by InputEventMouseMotion (see _input):
+## while a drag is active, follow the mouse and release on button-up.
+func _drag_update() -> void:
+	if _drag_index < 0:
+		return
+	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 		entries[_drag_index]["set"].call(get_global_mouse_position())
+	else:
+		_handles[_drag_index].color = HANDLE_COLOR
+		_drag_index = -1
 
 ## Picks the CLOSEST handle whose own (possibly per-entry) radius the click
 ## falls within, not just the first match, so two nearby handles don't fight
@@ -115,6 +126,7 @@ func _toggle() -> void:
 func _process(delta: float) -> void:
 	if not active:
 		return
+	_drag_update()
 	for i in entries.size():
 		_handles[i].position = entries[i]["get"].call()
 	if _saved_flash > 0.0:
