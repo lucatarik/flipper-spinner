@@ -490,8 +490,8 @@ func _scenario_slot_forced_win() -> bool:
 	return reached
 
 ## D-A2: a full-speed shot into each ramp mouth fires `ramp`/made and the ball
-## exits on the playfield layers; a shot too weak to enter is not taken and
-## never makes the ramp. While on a ramp the ball's mask is 16 only.
+## exits on the playfield layers; a weak shot enters but stalls in the physics
+## phase (first 50 px), rolls back out and never makes the ramp. While on a ramp the ball's mask is 16 only.
 func _scenario_ramps() -> bool:
 	var t = await _new_table()
 	t.rules.start_game()
@@ -531,9 +531,9 @@ func _scenario_ramps() -> bool:
 		var wmade: Array = [0]
 		var wcb := func(_n): wmade[0] += 1
 		ramp.made.connect(wcb)
-		# below MOUTH_SPEED: must not be taken at all (any shot that IS taken
-		# is scripted to the end, so there is no "falls back" case any more)
-		var wb = t.spawn_ball(start, ramp.mouth_dir * 100.0)
+		# enters the mouth but is too slow to get past the first SCRIPT_AFTER px
+		# on its own (physics phase) -> must roll back out, never made
+		var wb = t.spawn_ball(start, ramp.mouth_dir * 350.0)
 		t.rules.on_event("ball_added")
 		var weak_ok := false
 		for i in 600:

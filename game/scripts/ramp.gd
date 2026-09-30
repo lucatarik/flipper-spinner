@@ -6,22 +6,34 @@ extends Node2D
 ## ramp passing over another's entrance). A ball entering through the mouth while
 ## moving into the ramp is switched to layer-16 collision (nothing lives on that
 ## layer any more, so it touches nothing while riding), lifted above the table
-## (scale + drop shadow) and then SCRIPTED along the whole centreline: any ball
-## that goes in with enough force to start rolling always completes the ramp
-## (user request) at a steady ride speed, then drops back onto the playfield at
-## the end point (EXIT) at a gentle, catchable speed and emits `made`. A shot
-## too weak to enter (under MOUTH_SPEED into the mouth) simply isn't taken.
+## (scale + drop shadow). No suction: the mouth only reacts to a ball that
+## physically rolls into it, and nothing snaps or speeds it up.
+## Two phases (user request):
+##  1. APPROACH, the first SCRIPT_AFTER px: plain physics — the ball keeps its
+##     own along-track speed and the climb (table gravity + the ramp's incline)
+##     brakes it. Too weak and it stops and rolls back out on its own.
+##  2. Past SCRIPT_AFTER px it is SCRIPTED along the rest of the wire and always
+##     completes it, then drops back onto the playfield at the end point (EXIT)
+##     at a gentle, catchable speed and emits `made`.
 
 signal entered(ramp_name: String)
 signal made(ramp_name: String)
 
 const WIDTH := 36.0
 const RAIL_THICK := 5.0
-## Entry: moving into the mouth faster than this (px/s) inside MOUTH_RADIUS.
+## Entry: the ball must actually reach the mouth (small, no suction) moving in.
 const MOUTH_SPEED := 150.0
-const MOUTH_RADIUS := 44.0
-## Scripted ride speed = the entry speed clamped to this range; it eases a
-## little faster on descents and slower on climbs so it still feels physical.
+const MOUTH_RADIUS := 24.0
+## Approach phase: distance decided by physics, and the braking on the climb
+## (table gravity projected on the track + the ramp's own incline). With a
+## straight-up start that's ~2600 px/s², i.e. the ball needs roughly 510 px/s
+## along the track at the mouth to get past SCRIPT_AFTER.
+const SCRIPT_AFTER := 50.0
+const TABLE_GRAVITY := 1400.0
+const RAMP_INCLINE_DECEL := 1200.0
+## Scripted ride: speed eases up (never jumps) to at least RIDE_MIN_SPEED,
+## a little faster on descents and slower on climbs, capped at RIDE_MAX_SPEED.
+const RIDE_CATCHUP := 1400.0
 const RIDE_MIN_SPEED := 900.0
 const RIDE_MAX_SPEED := 1500.0
 const RIDE_SLOPE_ACCEL := 500.0
@@ -160,13 +172,11 @@ func _enter(ball: RigidBody2D) -> void:
 	ball.z_index = 7
 	if ball.has_method("set_lifted"):
 		ball.set_lifted(true)
-	# always ride from the start of the wire, whatever edge of the (big) mouth
-	# the ball clipped
-	var ride := clampf(ball.linear_velocity.length(), RIDE_MIN_SPEED, RIDE_MAX_SPEED)
-	_balls[id] = {"s": 0.0, "committed": false, "v": ride, "v0": ride}
+	# keep the ball exactly where it is and its own along-track speed
+	var s := clampf(_project(ball.global_position), 0.0, _total)
+	var v := ball.linear_velocity.dot(_tangent_at(s))
+	_balls[id] = {"s": s, "committed": false, "v": v, "scripted": false}
 	_ball_nodes[id] = ball
-	ball.global_position = points[0]
-	ball.linear_velocity = _tangent_at(0.0) * ride
 	entered.emit(ramp_name)
 
 func _physics_process(delta: float) -> void:
@@ -181,12 +191,24 @@ func _physics_process(delta: float) -> void:
 		var rec: Dictionary = _balls[id]
 		var s: float = float(rec["s"])
 		var t := _tangent_at(s)
-		# Scripted ride: never stalls or rolls back. Screen-down (+y) slopes
-		# speed it up a bit, climbs slow it, always within the ride range.
-		var v: float = float(rec["v"]) + t.y * RIDE_SLOPE_ACCEL * delta
-		v = clampf(v, RIDE_MIN_SPEED, RIDE_MAX_SPEED)
+		var v: float = float(rec["v"])
+		if not bool(rec["scripted"]):
+			# approach: physics only — gravity along the track + ramp incline
+			v += (TABLE_GRAVITY * t.y - RAMP_INCLINE_DECEL) * delta
+			s += v * delta
+			if s <= 0.0 and v < 0.0:
+				_fall_back(int(id), ball, t, v)
+				continue
+			if s >= SCRIPT_AFTER:
+				rec["scripted"] = true
+		else:
+			# scripted: never stalls or rolls back
+			if v < RIDE_MIN_SPEED:
+				v = minf(v + RIDE_CATCHUP * delta, RIDE_MIN_SPEED)
+			else:
+				v = clampf(v + t.y * RIDE_SLOPE_ACCEL * delta, RIDE_MIN_SPEED, RIDE_MAX_SPEED)
+			s += v * delta
 		rec["v"] = v
-		s += v * delta
 		if s >= _total:
 			_exit(int(id), ball)
 			continue
@@ -195,6 +217,13 @@ func _physics_process(delta: float) -> void:
 			rec["committed"] = true
 		ball.global_position = _point_at(s)
 		ball.linear_velocity = _tangent_at(s) * v
+
+## Too weak: it rolled back out of the mouth — hand it back to the playfield
+## just outside the mouth, still rolling back the way it came.
+func _fall_back(id: int, ball: RigidBody2D, tangent: Vector2, v: float) -> void:
+	_cleanup(id, ball)
+	ball.global_position = points[0] - mouth_dir * (MOUTH_RADIUS + 14.0)
+	ball.linear_velocity = tangent * v
 
 func _exit(id: int, ball: RigidBody2D) -> void:
 	_cleanup(id, ball)

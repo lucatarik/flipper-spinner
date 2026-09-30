@@ -37,8 +37,9 @@ material from either source.
   above the right wing flipper) loops in a full figure-8 around the idol scoop
   and returns the ball to the left inlane; the IDOL ramp (entrance above the
   left wing flipper) climbs the left side, arches over the top of the table,
-  snakes, and returns the ball to the right inlane. Any shot that goes in with
-  enough force to start rolling is carried all the way round.
+  snakes, and returns the ball to the right inlane. No suction: for the first
+  50 px up the wire it's pure physics, so a weak shot stalls and rolls back
+  out; get past that and the ball is carried all the way round.
 - **The idol awakens**: every so often the golden idol at the top of the table
   wakes up (pulsing glow, burning eyes, a message on the DMD). Touch it while
   it's awake and it kidnaps the ball, shakes it for a moment, then hurls it out

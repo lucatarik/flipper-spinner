@@ -78,6 +78,11 @@ const SIDE_BUMPERS := [
 const FLIPPER_LEFT_PIVOT := Vector2(202, 1162)
 const FLIPPER_RIGHT_PIVOT := Vector2(452, 1162)
 const PLUNGER_POS := Vector2(674, 1150)
+## Where each inlane guide ends relative to its flipper pivot (x mirrored for
+## the right side): overlapping the pivot cap so there's no visible gap, but
+## a little above the bat so the ball drops onto it instead of bumping the
+## round pivot cap (which deflected it clean over the flipper).
+const INLANE_END_OFFSET := Vector2(4.0, -16.0)
 
 ## Extra "wing" flipper pair, higher up in the open lanes either side of the slot
 ## pit, fired together with the main flipper on their side (same buttons) so a
@@ -905,14 +910,15 @@ func _build_walls() -> void:
 	# the upper ends (at the side walls) go up a little. A single straight
 	# band doing both got too steep and pinched the inlane under each
 	# slingshot to ~21px (ball = 24) — balls wedged there in the physics test.
-	# So: a raised shoulder at the wall, a middle run parallel to the sling's
-	# bottom edge with ~40px of channel, then the drop onto the flipper pivot.
+	# So: a raised shoulder at the wall, then ONE straight run into the flipper
+	# pivot (~42px of channel under the sling). An earlier version had a knee
+	# before the pivot: it launched rolling balls clean over the flipper.
 	for side in [-1.0, 1.0]:
 		var pivot: Vector2 = FLIPPER_LEFT_PIVOT if side < 0.0 else FLIPPER_RIGHT_PIVOT
-		var pts: Array = [Vector2(20, 975), Vector2(45, 1030), Vector2(143, 1080),
-			pivot + Vector2(4.0 * side, 0.0)]
+		var pts: Array = [Vector2(20, 975), Vector2(45, 1030),
+			pivot + Vector2(INLANE_END_OFFSET.x * -side, INLANE_END_OFFSET.y)]
 		if side > 0.0:
-			for i in 3:
+			for i in 2:
 				pts[i] = Vector2(LEFT_WALL_INNER + DIVIDER_INNER - pts[i].x, pts[i].y)
 		for i in pts.size() - 1:
 			_add_band(pts[i], pts[i + 1], 16.0)

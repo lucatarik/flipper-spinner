@@ -1271,3 +1271,24 @@ Idol" quest, draggable in the layout editor. Riding ramp balls are never grabbed
 - `run_tests.gd` 43/43; `physics_smoke.gd` 23/23 (new: idol ignores a ball while dormant,
   grabs + holds + flings it >1000 px/s not downward when awake; ramp test: sub-threshold shot is
   not taken, full shot is made).
+
+## Part Q — ramps: physics decides the first 50 px, then the script
+User: the ramps felt like they "suck the ball in"; the ball must go in on its own and must be
+able to fail — script only once it's 50 px up the ramp, otherwise natural physics.
+- `ramp.gd`: mouth back to radius 24 (was 44) and no snapping — the ball keeps its position and
+  its own along-track speed on entry. APPROACH phase (first `SCRIPT_AFTER` = 50 px): only
+  table gravity projected on the track + a ramp incline (`RAMP_INCLINE_DECEL` 1200) act, ~2600
+  px/s² on a straight climb, so it needs ~510 px/s along the track at the mouth; a weaker ball
+  stops and rolls back out (`_fall_back`, handed back just outside the mouth still rolling
+  back). Past 50 px: scripted as in Part P, but speed eases up (`RIDE_CATCHUP`) instead of
+  jumping to the ride speed.
+- Shot sweep (88 realistic shots): TEMPLE 14 entered / 13 made, IDOL 11 entered / 9 made
+  (Part P's suction version: 15/15 and 23/22).
+- Flipper walls, found while re-testing: the 3-segment guide's knee launched rolling balls
+  clean over the flipper, and ending the guide exactly at pivot height bumped the ball off the
+  round pivot cap. Now: shoulder at the wall -> one straight run ending `INLANE_END_OFFSET`
+  (4 px outboard, 16 px above) the pivot — overlapping the cap, no visible gap. 12/12 test
+  drops (both inlanes, both ramp exits, two speeds) land on their flipper; the inlane smoke test
+  (which had only been passing by luck) is now stable.
+- Tests: 43/43 unit, 23/23 physics (twice in a row); ramp test now checks a 350 px/s shot
+  enters, stalls in the physics phase and rolls back without making the ramp.
