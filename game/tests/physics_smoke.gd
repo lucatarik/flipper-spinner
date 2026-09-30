@@ -184,7 +184,9 @@ func _scenario_cradle() -> bool:
 	t.left_flipper.set_pressed(true)
 	for i in 240:
 		await physics_frame
-	var b = t.spawn_ball(Vector2(258, 1063), Vector2.ZERO)
+	# same spot relative to the (since moved) left flipper pivot as originally
+	# (258,1063) vs pivot (214,1130)
+	var b = t.spawn_ball(t.left_flipper.position + Vector2(44, -67), Vector2.ZERO)
 	t.rules.on_event("ball_added")
 	var max_speed := 0.0
 	var launched := false
@@ -386,19 +388,26 @@ func _scenario_new_bumpers() -> bool:
 		for other in t.get_tree().get_nodes_in_group("balls"):
 			other.queue_free()
 		await physics_frame
-		var start: Vector2 = b.position + approach * 90.0
-		var ball = t.spawn_ball(start, -approach * 900.0)
-		t.rules.on_event("ball_added")
 		var kicked := false
-		for i in 120:
+		# try the nominal approach first, then the opposite side: in the saved
+		# layout a vortex pit sits right on one mini bumper's approach line and
+		# swallows the test ball before it can arrive
+		for dir in [approach, -approach]:
+			var start: Vector2 = b.position + dir * 90.0
+			var ball = t.spawn_ball(start, -dir * 900.0)
+			t.rules.on_event("ball_added")
+			for i in 120:
+				await physics_frame
+				if fired[0] > 0:
+					kicked = true
+					break
+			if is_instance_valid(ball):
+				ball.queue_free()
 			await physics_frame
-			if fired[0] > 0:
-				kicked = true
+			if kicked:
 				break
 		if not kicked:
 			all_ok = false
-		if is_instance_valid(ball):
-			ball.queue_free()
 		await physics_frame
 		b.hit.disconnect(cb)
 	t.queue_free()

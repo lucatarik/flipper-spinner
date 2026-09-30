@@ -23,6 +23,9 @@ var _audio_enabled := true
 var _music_enabled := true
 
 func _ready() -> void:
+	# Keep sounding while the tree is paused: SLOT ONLY mode and the pause menu
+	# both pause the pinball but still need audio.
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	# The headless dummy audio driver leaks active Ogg playbacks at exit; skip
 	# real playback there so the engine shuts down without "resources in use".
 	_audio_enabled = DisplayServer.get_name() != "headless"

@@ -45,6 +45,9 @@ const STATE_EVALUATE := 2
 const STATE_SHOW_WIN := 3
 
 var slot
+## SLOT ONLY mode (slot_only.gd): no automatic spinning — spins only happen
+## through request_spin(), which also supports held reels. Set before _ready.
+var manual_mode := false
 var _table: Node = null
 var _sfx: Node = null
 
@@ -148,6 +151,16 @@ func add_energy(n: int = 1) -> void:
 func free_spins_active() -> bool:
 	return slot.free_spins > 0
 
+func is_idle() -> bool:
+	return _state == STATE_IDLE
+
+## Manual spin (SLOT ONLY). `held` = reel indices that keep last spin's symbols.
+func request_spin(held: Array = []) -> bool:
+	if _state != STATE_IDLE:
+		return false
+	_begin_spin(held)
+	return true
+
 func current_bet() -> int:
 	return slot.bet
 
@@ -166,7 +179,7 @@ func _process(delta: float) -> void:
 	match _state:
 		STATE_IDLE:
 			_timer -= delta
-			if _timer <= 0.0 and _active:
+			if _timer <= 0.0 and _active and not manual_mode:
 				_begin_spin()
 		STATE_SPINNING:
 			_update_spinning(delta)
@@ -197,7 +210,8 @@ func _clear_win() -> void:
 	_pulse.clear()
 	_update_reels()
 
-func _begin_spin() -> void:
+func _begin_spin(held: Array = []) -> void:
+	var previous: Array = _display_grid.duplicate(true)
 	_clear_win()
 	_state = STATE_SPINNING
 	_timer = 0.0
@@ -211,6 +225,9 @@ func _begin_spin() -> void:
 
 	var was_free: bool = slot.free_spins > 0
 	var grid: Array = slot.spin()
+	if previous.size() == REELS:
+		for r in held:
+			grid[int(r)] = (previous[int(r)] as Array).duplicate()
 	_win_result = slot.evaluate(grid)
 	_display_grid = grid.duplicate(true)
 	_expanded = _win_result.get("expanded_reels", []).duplicate()
@@ -227,6 +244,11 @@ func _begin_spin() -> void:
 			break
 	var t := 0.0
 	for r in REELS:
+		if r in held:
+			# held reels never scroll: already stopped, no stop click
+			_stop_times.append(0.0)
+			_stopped.append(true)
+			continue
 		t += SPIN_SECONDS / float(REELS)
 		if anticipation_from >= 0 and r >= anticipation_from:
 			t += ANTICIPATION_EXTRA
@@ -251,7 +273,9 @@ func _update_spinning(delta: float) -> void:
 			if r in _anticipation_reels:
 				_play("anticipation")
 				_flash_reel_frame()
-	if _timer >= _stop_times[REELS - 1]:
+	# every reel stopped (not just the last one: with holds the last reel can
+	# be a held one that "stopped" at t=0)
+	if not (false in _stopped):
 		_loop_stop("reel_spin")
 		_state = STATE_EVALUATE
 		_timer = 0.12
@@ -308,7 +332,8 @@ func _begin_show_win() -> void:
 func _show_bonus_banner() -> void:
 	var bonuses: Dictionary = _win_result.get("bonuses", {})
 	var names: Array = bonuses.get("names", [])
-	if names.is_empty():
+	# pinball bonuses mean nothing in SLOT ONLY
+	if names.is_empty() or manual_mode:
 		return
 	var parts: Array = []
 	for n in names:

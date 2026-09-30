@@ -116,6 +116,9 @@ func _try_start_drag(world_pos: Vector2) -> void:
 		_handles[best].color = HANDLE_DRAG_COLOR
 
 func _toggle() -> void:
+	# Something else (pause menu, SLOT ONLY mode) already owns the pause.
+	if not active and get_tree().paused:
+		return
 	active = not active
 	get_tree().paused = active
 	_drag_index = -1

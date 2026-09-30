@@ -3,6 +3,42 @@ extends CanvasLayer
 ## a timed progress bar, transient messages, attract and game-over screens.
 
 signal music_toggle_pressed
+signal slot_only_requested
+
+## Every command in the game, shown by the INFO screen (start menu + pause
+## menu, or I). Keep in sync with README.md "Controls". "" key = header.
+const INFO_ROWS := [
+	["", "PINBALL"],
+	["LEFT / Z / A / SHIFT+L", "left flipper + left wings"],
+	["RIGHT / D / /", "right flipper + right wings"],
+	["DOWN / SPACE (hold)", "plunger: hold to charge, release"],
+	["ENTER / SPACE", "start game"],
+	["X / C / T / UP", "nudge left / right / up"],
+	["P / ESC", "pause menu"],
+	["I", "this info screen"],
+	["S", "SLOT ONLY mode on / off"],
+	["SPEAKER ICON", "music + sound on / off"],
+	["", "CHEATS"],
+	["M", "Eternal Life multiball"],
+	["B", "free extra ball right now"],
+	["N", "extra ball in reserve"],
+	["R", "reset a stuck ball"],
+	["V", "gravity 100% / 50%"],
+	["TAB", "zoom camera following the ball"],
+	["", "SLOT ONLY"],
+	["SPACE / ENTER", "spin"],
+	["1 - 5", "hold a reel (after a losing spin)"],
+	["UP / DOWN  or  + / -", "bet 1-5 per line (10 lines)"],
+	["C", "insert coin: +100 credits"],
+	["S / ESC", "back to the pinball"],
+	["", "QUESTS"],
+	["DOT-MATRIX (TOP)", "random timed quests after you score:"],
+	["", "reach the goal in time = big bonus"],
+	["", "DEV + TOUCH"],
+	["E", "layout editor (drag, S = save)"],
+	["LEFT / RIGHT HALF", "touch: flippers"],
+	["BOTTOM-RIGHT / 2 FINGERS", "touch: plunger / nudge up"],
+]
 
 var rules = null
 
@@ -24,6 +60,9 @@ var _gameover_score: Label
 var _new_high: Label
 var _music_btn: Button
 var _music_shapes: Array = []
+var _pause_menu: Control
+var _info: Control
+var _paused_by_me := false
 
 var _message_timer := 0.0
 var _message_total := 0.0
@@ -51,9 +90,152 @@ func _ready() -> void:
 	_message_label.size.x = 720
 	_message_label.visible = false
 
+	# Above the quest DMD (layer 2); keeps working while the tree is paused so
+	# the pause menu / info screen can be driven.
+	layer = 5
+	process_mode = Node.PROCESS_MODE_ALWAYS
+
 	_build_attract()
 	_build_gameover()
 	_build_music_button()
+	_build_pause_menu()
+	_build_info()
+
+# --- pause menu + info ------------------------------------------------------
+
+func _unhandled_input(event: InputEvent) -> void:
+	if not (event is InputEventKey) or not event.pressed or event.echo:
+		return
+	if event.is_action_pressed("pause"):
+		if _info.visible:
+			_close_info()
+		elif _paused_by_me:
+			_resume()
+		elif _can_pause():
+			_pause()
+		else:
+			return
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("info"):
+		if _info.visible:
+			_close_info()
+		elif _paused_by_me or not _is_playing():
+			_open_info()
+		elif _can_pause():
+			_pause()
+			_open_info()
+		else:
+			return
+		get_viewport().set_input_as_handled()
+
+func _is_playing() -> bool:
+	return rules != null and rules.state == 1
+
+## Only mid-game, and never while something else (SLOT ONLY, the layout
+## editor) already owns the pause.
+func _can_pause() -> bool:
+	if not _is_playing() or get_tree().paused:
+		return false
+	var table := get_parent()
+	if table and table.has_method("pause_blocked") and table.pause_blocked():
+		return false
+	return true
+
+func _pause() -> void:
+	_paused_by_me = true
+	get_tree().paused = true
+	_pause_menu.visible = true
+
+func _resume() -> void:
+	_info.visible = false
+	_pause_menu.visible = false
+	if _paused_by_me:
+		_paused_by_me = false
+		get_tree().paused = false
+
+func _open_info() -> void:
+	_info.visible = true
+
+func _close_info() -> void:
+	_info.visible = false
+
+func _request_slot_only() -> void:
+	_resume()
+	slot_only_requested.emit()
+
+func _build_pause_menu() -> void:
+	_pause_menu = Control.new()
+	_pause_menu.size = Vector2(720, 1280)
+	_pause_menu.visible = false
+	add_child(_pause_menu)
+	var bg := ColorRect.new()
+	bg.size = Vector2(720, 1280)
+	bg.color = DARK
+	_pause_menu.add_child(bg)
+	_pause_menu.add_child(_child_label("PAUSED", Vector2(0, 380), 64, GOLD))
+	_pause_menu.add_child(_child_label("P / ESC TO RESUME", Vector2(0, 470), 22, STONE))
+	_menu_button(_pause_menu, "RESUME", 560, _resume)
+	_menu_button(_pause_menu, "INFO  (I)", 660, _open_info)
+	_menu_button(_pause_menu, "SLOT ONLY  (S)", 760, _request_slot_only)
+
+func _build_info() -> void:
+	_info = Control.new()
+	_info.size = Vector2(720, 1280)
+	_info.visible = false
+	add_child(_info)
+	var bg := ColorRect.new()
+	bg.size = Vector2(720, 1280)
+	bg.color = Color(0.04, 0.03, 0.015, 1.0)
+	_info.add_child(bg)
+	_info.add_child(_child_label("HOW TO PLAY", Vector2(0, 28), 44, GOLD))
+	var y := 104.0
+	for row in INFO_ROWS:
+		var key := String(row[0])
+		var desc := String(row[1])
+		if key == "" and desc == desc.to_upper():
+			y += 8.0
+			var h := _child_label(desc, Vector2(0, y), 24, GOLD)
+			_info.add_child(h)
+			y += 34.0
+			continue
+		var k := Label.new()
+		k.text = key
+		k.position = Vector2(16, y)
+		k.size.x = 290
+		k.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		k.add_theme_font_size_override("font_size", 19)
+		k.add_theme_color_override("font_color", Color("#ffd24a"))
+		_info.add_child(k)
+		var d := Label.new()
+		d.text = desc
+		d.position = Vector2(322, y)
+		d.size.x = 390
+		d.add_theme_font_size_override("font_size", 19)
+		d.add_theme_color_override("font_color", STONE)
+		_info.add_child(d)
+		y += 29.0
+	_menu_button(_info, "CLOSE  (I / ESC)", 1180, _close_info)
+
+## Big touch-friendly menu button, horizontally centred at row `y`.
+func _menu_button(parent: Control, text: String, y: float, cb: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.position = Vector2(200, y)
+	b.size = Vector2(320, 72)
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_size_override("font_size", 28)
+	b.add_theme_color_override("font_color", Color("#ffd24a"))
+	b.add_theme_color_override("font_hover_color", Color.WHITE)
+	for state in ["normal", "hover", "pressed"]:
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color("#2a1608") if state == "normal" else (Color("#4a2a10") if state == "hover" else Color("#c0203a"))
+		sb.border_color = GOLD
+		sb.set_border_width_all(3)
+		sb.set_corner_radius_all(12)
+		b.add_theme_stylebox_override(state, sb)
+	b.pressed.connect(cb)
+	parent.add_child(b)
+	return b
 
 ## D4: clickable/tappable speaker icon (top-right, under the ball counter).
 func _build_music_button() -> void:
@@ -133,6 +315,8 @@ func _build_attract() -> void:
 	_attract_high = _child_label("HIGH SCORE  0", Vector2(0, 660), 32, STONE)
 	_attract.add_child(_attract_high)
 	_attract.add_child(_child_label("PRESS ENTER / TAP", Vector2(0, 980), 40, GOLD))
+	_menu_button(_attract, "INFO  (I)", 1070, _open_info)
+	_menu_button(_attract, "SLOT ONLY  (S)", 1160, func(): slot_only_requested.emit())
 
 func _build_gameover() -> void:
 	_gameover = Control.new()
@@ -207,6 +391,8 @@ func _on_message(text: String, seconds: float) -> void:
 	_message_total = max(seconds, 0.001)
 
 func _on_state(state: int) -> void:
+	if _info:
+		_info.visible = false
 	_attract.visible = state == 0
 	_gameover.visible = state == 2
 	if state == 1:

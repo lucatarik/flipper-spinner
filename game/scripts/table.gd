@@ -23,6 +23,9 @@ const KickbackHoleScript = preload("res://scripts/kickback_hole.gd")
 const RetroArrowsScript = preload("res://scripts/retro_arrows.gd")
 const SoftBonusScript = preload("res://scripts/floating_bonus.gd")
 const LayoutEditorScript = preload("res://scripts/layout_editor.gd")
+const QuestManagerScript = preload("res://scripts/quest_manager.gd")
+const DmdScene = preload("res://scenes/dmd_display.tscn")
+const SlotOnlyScript = preload("res://scripts/slot_only.gd")
 
 const TEX_PLAYFIELD = preload("res://assets/playfield.jpg")
 const TEX_BUMPER = preload("res://assets/sprites/bumper.png")
@@ -67,8 +70,12 @@ const SIDE_BUMPERS := [
 ## tips and the drain at rest — tighter than the previous ~31px but still
 ## clear of the drain sensor. Both main flippers are draggable in the layout
 ## editor (E) too, so nudge further yourself if you want more/less clearance.
-const FLIPPER_LEFT_PIVOT := Vector2(214, 1162)
-const FLIPPER_RIGHT_PIVOT := Vector2(440, 1162)
+## X spread 214/440 -> 202/452: with the +20% bats the resting tips were only
+## 22.6px apart (centre to centre) — less than a ball (24) plus two tip caps
+## (2x7), so a ball could never drain down the middle and just sat on the tips
+## (found by the headless physics smoke test). Now ~46.6px, ~8px to spare.
+const FLIPPER_LEFT_PIVOT := Vector2(202, 1162)
+const FLIPPER_RIGHT_PIVOT := Vector2(452, 1162)
 const PLUNGER_POS := Vector2(674, 1150)
 
 ## Extra "wing" flipper pair, higher up in the open lanes either side of the slot
@@ -157,7 +164,7 @@ const R1_POINTS := [
 	Vector2(528, 812), Vector2(528, 700), Vector2(528, 610),
 	Vector2(532, 480), Vector2(535, 300),
 	Vector2(523, 255), Vector2(490, 222), Vector2(445, 210), Vector2(400, 222), Vector2(367, 255), Vector2(355, 300),
-	Vector2(365, 300), Vector2(353, 345), Vector2(320, 378), Vector2(275, 390), Vector2(230, 378), Vector2(197, 345), Vector2(185, 300),
+	Vector2(353, 345), Vector2(320, 378), Vector2(275, 390), Vector2(230, 378), Vector2(197, 345), Vector2(185, 300),
 	Vector2(150, 340), Vector2(118, 430), Vector2(106, 520), Vector2(112, 590),
 	Vector2(112, 700), Vector2(112, 755),
 	Vector2(108, 790), Vector2(101, 825), Vector2(92, 858), Vector2(81, 888),
@@ -257,6 +264,12 @@ var _soft_spot_markers: Array = []
 var _layout_entries: Array = []
 var _layout_editor
 
+var quests
+var dmd
+var _last_score := 0
+var _slot_only
+var _slot_only_closed_ms := -100000
+
 func _ready() -> void:
 	_sfx = get_node_or_null("/root/Sfx")
 	_gravity_normal = ProjectSettings.get_setting("physics/2d/default_gravity", 1400.0)
@@ -281,11 +294,15 @@ func _ready() -> void:
 	_build_ramps()
 	_build_lights()
 	_build_layout_editor()
+	_build_quests()
+	_build_slot_only()
 	if hud and hud.has_method("setup"):
 		hud.setup(rules)
 	if hud:
 		if hud.has_signal("music_toggle_pressed"):
 			hud.music_toggle_pressed.connect(_toggle_music)
+		if hud.has_signal("slot_only_requested"):
+			hud.slot_only_requested.connect(_enter_slot_only)
 		if hud.has_method("set_music_enabled") and _sfx:
 			hud.set_music_enabled(_sfx.is_music_enabled())
 
@@ -350,6 +367,8 @@ func _physics_process(delta: float) -> void:
 		_toggle_gravity()
 	if Input.is_action_just_pressed("cheat_zoom_follow"):
 		_toggle_zoom_follow()
+	if Input.is_action_just_pressed("slot_only"):
+		_enter_slot_only()
 
 	var dead: bool = rules.tilted
 	var left := Input.is_action_pressed("flip_left") and not dead
@@ -389,6 +408,9 @@ func _physics_process(delta: float) -> void:
 	_update_add_ball(delta)
 	_update_ball_save(delta)
 	_update_slot()
+	if quests:
+		# quest clocks/triggers only run while a launched ball is really in play
+		quests.enabled = _slot_active
 	_update_music()
 	_update_soft_bonus(delta)
 	_update_camera_follow(delta)
@@ -872,8 +894,8 @@ func _build_walls() -> void:
 	# "i muri del flipper non li hai allungati, hai spostato solo le palette").
 	# End Y follows pivot_y - 30, same offset the original (unmoved) walls had
 	# relative to the original pivot, now applied to FLIPPER_LEFT/RIGHT_PIVOT.y.
-	_add_band(Vector2(20, 1000), Vector2(210, FLIPPER_LEFT_PIVOT.y - 30.0), 16.0)
-	_add_band(Vector2(634, 1000), Vector2(444, FLIPPER_RIGHT_PIVOT.y - 30.0), 16.0)
+	_add_band(Vector2(20, 1000), FLIPPER_LEFT_PIVOT + Vector2(-4.0, -30.0), 16.0)
+	_add_band(Vector2(634, 1000), FLIPPER_RIGHT_PIVOT + Vector2(4.0, -30.0), 16.0)
 	# top rollover lane separators
 	for x in LANE_POST_XS:
 		_add_band(Vector2(x, LANE_TOP), Vector2(x, LANE_BOTTOM), 10.0)
@@ -1215,6 +1237,70 @@ func _on_ramp_made(ramp_name: String) -> void:
 	if slot:
 		slot.add_energy(2)
 	rules.on_event("ramp", {"name": ramp_name})
+	if quests:
+		quests.on_event("ramp")
+
+# --- quests + DMD -------------------------------------------------------------
+
+func _build_quests() -> void:
+	quests = QuestManagerScript.new()
+	quests.name = "QuestManager"
+	add_child(quests)
+	dmd = DmdScene.instantiate()
+	add_child(dmd)
+	dmd.bind_quests(quests)
+	switch_hit.connect(func(kind: String): quests.on_event(kind))
+	rules.score_changed.connect(_on_score_for_quests)
+	quests.quest_started.connect(func(_q): _sfx_play("mode_start"))
+	quests.quest_progress_updated.connect(func(_c, _t): _sfx_play("lock"))
+	quests.quest_completed.connect(_on_quest_completed)
+	quests.quest_failed.connect(func(_q): _sfx_play("drain", 0.7))
+
+## Quests trigger "a random while after you score": feed every positive
+## score delta to the manager, which rolls the dice once its cooldown is over.
+func _on_score_for_quests(score: int) -> void:
+	var delta := score - _last_score
+	_last_score = score
+	if delta > 0 and quests:
+		quests.notify_points_scored(delta)
+
+func _on_quest_completed(q: Dictionary) -> void:
+	rules.award_quest(int(q.get("reward_points", 0)))
+	_sfx_play("jackpot")
+	if lights:
+		lights.flash()
+		lights.shake(6.0, 0.25)
+
+# --- SLOT ONLY + pause coordination ---------------------------------------------
+
+func _build_slot_only() -> void:
+	_slot_only = SlotOnlyScript.new()
+	_slot_only.name = "SlotOnly"
+	add_child(_slot_only)
+	_slot_only.setup(_sfx)
+	_slot_only.closed.connect(_on_slot_only_closed)
+
+## S (or the menu buttons): pause the pinball and bring up the standalone slot.
+## The small time guard stops the same S press that just closed SLOT ONLY
+## (handled as an input event, then seen again by this frame's action poll)
+## from immediately reopening it.
+func _enter_slot_only() -> void:
+	if _slot_only == null or _slot_only.is_open or get_tree().paused:
+		return
+	if Time.get_ticks_msec() - _slot_only_closed_ms < 300:
+		return
+	_sfx_loop_stop("plunger_charge")
+	get_tree().paused = true
+	_slot_only.open()
+
+func _on_slot_only_closed() -> void:
+	_slot_only_closed_ms = Time.get_ticks_msec()
+	get_tree().paused = false
+
+## Asked by the HUD before opening the pause menu.
+func pause_blocked() -> bool:
+	return (_slot_only != null and _slot_only.is_open) \
+		or (_layout_editor != null and _layout_editor.active)
 
 func _on_switch_hit(_kind: String) -> void:
 	if slot:
@@ -1278,6 +1364,12 @@ func _on_tilted() -> void:
 	_update_music()
 
 func _on_state_changed(state: int) -> void:
+	if quests:
+		if state == RulesScript.State.PLAYING:
+			_last_score = 0
+			quests.reset()
+		else:
+			quests.abort()
 	if state != RulesScript.State.PLAYING:
 		_slot_ready = false
 		if _cam_follow:

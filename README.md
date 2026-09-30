@@ -52,8 +52,33 @@ material from either source.
   (extra balls, ball save, lit locks, spotted targets, multiplier bumps,
   multiball, playfield ×2, and more).
 - The two games are genuinely wired together, not just sharing a cabinet.
+- **SLOT ONLY mode** (`S`): pauses the pinball and zooms the cabinet up to fill
+  the screen as a standalone slot machine — credits, a 1-5 bet, a big SPIN
+  button and a HOLD button under every reel (holds unlock after a losing spin,
+  max 4, never during free spins). Its credits are separate from the pinball
+  score; `INSERT COIN` tops you up with 100 more whenever you like.
+
+**Quests on a dot-matrix display**
+- Every so often, a random while after you score, a **quest** starts on an
+  amber dot-matrix display (DMD) that floats over the top of the table on a
+  transparent background — in the spirit of the video modes on the classic
+  1993 adventure-pinball tables. A whip cracks the quest's name into view, the
+  goal scrolls past marquee-style, then a live screen tracks hits, the
+  countdown and a progress bar while a little animation plays underneath
+  (a mine cart on its track, a boulder chasing the explorer, marching skulls,
+  a snake...).
+- Six quests: *Steal the Stones* (bumpers), *Runaway Mine Cart* (ramps),
+  *Temple of Skulls* (drop targets), *Outrun the Boulder* (orbits/top lanes),
+  *Well of Snakes* (slingshots), *Eye of the Idol* (scoop or a vortex pit).
+- Beat the clock and you get **QUEST COMPLETE**, a golden idol and a big points
+  bonus (120,000-250,000, times the playfield multiplier). Run out of time and
+  the display dissolves — no bonus. The quest clock only runs while a ball is
+  actually in play, and it never pauses or blocks the game.
 
 ## Controls
+
+The same list is in the game: press `I`, or the **INFO** button on the start
+menu and the pause menu.
 
 | Action | Keys |
 |---|---|
@@ -62,10 +87,24 @@ material from either source.
 | Plunger (hold to charge, release to launch) | `Down Arrow`, `Space` |
 | Start / launch ball | `Enter`, `Space` |
 | Nudge left / right / up | `X` / `C` / `T`, `Up Arrow` |
-| Toggle music | click the speaker icon (top right) |
+| Pause menu (Resume / Info / Slot Only) | `P`, `Esc` |
+| Info screen (every command) | `I` |
+| SLOT ONLY mode on / off | `S` |
+| Toggle music + sound | click the speaker icon (top right) |
 
 Touch: left half of the screen = left flipper, right half = right flipper, bottom
-right corner = plunger, two-finger tap = nudge up.
+right corner = plunger, two-finger tap = nudge up. The start and pause menus have
+tappable INFO / SLOT ONLY buttons.
+
+### SLOT ONLY mode
+
+| Key | Effect |
+|---|---|
+| `Space`, `Enter` (or the SPIN button) | Spin (costs bet × 10 lines; free spins cost nothing) |
+| `1`-`5` (or the HOLD buttons) | Hold / release that reel for the next spin (after a losing spin) |
+| `Up` / `Down`, `+` / `-` | Bet 1-5 per line |
+| `C` (or INSERT COIN) | +100 credits |
+| `S`, `Esc` (or EXIT) | Back to the pinball, exactly where you left it |
 
 ### Cheats
 
@@ -121,7 +160,13 @@ game/
     slot_machine.gd      Pure slot-machine logic (paytable, spins, free spins, bonuses)
     table.gd             Scene controller: builds the table, wires physics to Rules
     flipper.gd, bumper.gd, mini_bumper.gd, kickback_hole.gd, ramp.gd, ...  physics nodes
-  scenes/                main.tscn, ball.tscn, slot.tscn
+    quest_manager.gd     Quest state machine (goals, timers, rewards) + signals
+    dmd_display.gd       Quest DMD overlay; dmd_animation_player.gd sequences the
+                         shows, dmd_canvas.gd is the 128x32 frame buffer + 5x7 font
+    slot_only.gd         SLOT ONLY standalone slot screen
+    hud.gd               Score/HUD, start menu, pause menu, INFO screen
+  shaders/dmd.gdshader   Amber dot-matrix LEDs with glow on a transparent background
+  scenes/                main.tscn, ball.tscn, slot.tscn, dmd_display.tscn
   assets/                generated sprites, slot symbols, sound effects and music
   tests/                 run_tests.gd (unit), physics_smoke.gd (scripted headless play)
   tools/                 gen_sfx.py / gen_music.py — deterministic, stdlib-only generators

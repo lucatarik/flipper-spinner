@@ -1,0 +1,26 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/dmd_display.gd" id="1_dmd"]
+[ext_resource type="Script" path="res://scripts/dmd_animation_player.gd" id="2_anim"]
+[ext_resource type="Shader" path="res://shaders/dmd.gdshader" id="3_shader"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_dmd"]
+shader = ExtResource("3_shader")
+shader_parameter/lit_color = Color(1, 0.666667, 0, 1)
+shader_parameter/master_alpha = 0.0
+
+[node name="DMDDisplay" type="CanvasLayer"]
+layer = 2
+script = ExtResource("1_dmd")
+
+[node name="Matrix" type="ColorRect" parent="."]
+material = SubResource("ShaderMaterial_dmd")
+offset_left = 40.0
+offset_top = 196.0
+offset_right = 680.0
+offset_bottom = 356.0
+mouse_filter = 2
+color = Color(0, 0, 0, 0)
+
+[node name="DMDAnimationPlayer" type="Node" parent="."]
+script = ExtResource("2_anim")

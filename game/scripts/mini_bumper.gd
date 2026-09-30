@@ -174,7 +174,7 @@ func _explode() -> void:
 	visible = false
 	collision_layer = 0
 	if _detect:
-		_detect.monitoring = false
+		_detect.set_deferred("monitoring", false)
 	exploded.emit()
 
 func _respawn() -> void:
@@ -188,5 +188,5 @@ func _respawn() -> void:
 	visible = true
 	collision_layer = 1
 	if _detect:
-		_detect.monitoring = true
+		_detect.set_deferred("monitoring", true)
 	_glow = 1.6

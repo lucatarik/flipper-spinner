@@ -3,6 +3,9 @@ extends SceneTree
 const RulesScript = preload("res://scripts/rules.gd")
 const SlotMachineScript = preload("res://scripts/slot_machine.gd")
 const SettingsScript = preload("res://scripts/settings.gd")
+const QuestManagerScript = preload("res://scripts/quest_manager.gd")
+const DmdCanvasScript = preload("res://scripts/dmd_canvas.gd")
+const DmdAnimScript = preload("res://scripts/dmd_animation_player.gd")
 
 var passed := 0
 var failed := 0
@@ -48,6 +51,11 @@ func _initialize() -> void:
 	run("rules: 4th ramp extra ball + cap", test_rules_ramp_extra_ball)
 	run("rules: mode 1 qualifies on ramp", test_rules_mode_ramp)
 	run("settings: music toggle persists", test_settings_music)
+	run("quests: progress + completion + reward data", test_quest_complete)
+	run("quests: intro grace, hurry-up, timeout fail", test_quest_fail)
+	run("quests: random trigger after scoring, disabled gating", test_quest_trigger)
+	run("rules: award_quest uses playfield mult, ignored outside PLAYING", test_rules_award_quest)
+	run("dmd canvas: font + fit scale + commas", test_dmd_canvas)
 	run("slot 20000-spin target math", test_slot_target_math)
 	print("----------------------------------------")
 	print("SUMMARY: %d passed, %d failed" % [passed, failed])
@@ -921,6 +929,110 @@ func test_settings_music() -> void:
 	SettingsScript.set_music_enabled(true, path)
 	expect(SettingsScript.get_music_enabled(path), "persisted on")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+func test_quest_complete() -> void:
+	var qm = QuestManagerScript.new()
+	qm.enabled = true
+	var started: Array = []
+	var progress: Array = []
+	var completed: Array = []
+	qm.quest_started.connect(func(q): started.append(q))
+	qm.quest_progress_updated.connect(func(c, t): progress.append([c, t]))
+	qm.quest_completed.connect(func(q): completed.append(q))
+	var q: Dictionary = qm.start_quest("sacred_stones")
+	expect(not q.is_empty() and qm.is_active(), "quest started")
+	expect(started.size() == 1 and int(started[0]["current_count"]) == 0, "quest_started emitted with count 0")
+	for k in ["id", "title", "description", "target_count", "current_count", "time_limit", "reward_points", "animations"]:
+		expect(q.has(k), "quest data has %s" % k)
+	qm.on_event("ramp")
+	expect(int(qm.active_quest["current_count"]) == 0, "unrelated event ignored")
+	for i in 7:
+		qm.on_event("bumper")
+	expect(qm.is_active() and completed.is_empty(), "7/8 still running")
+	qm.on_event("bumper_explode")
+	expect(not qm.is_active(), "8/8 completes")
+	expect(completed.size() == 1 and int(completed[0]["reward_points"]) == 150000, "completed once with reward")
+	expect(progress.size() == 8 and progress[7] == [8, 8], "progress emitted every hit")
+	qm.on_event("bumper")
+	expect(completed.size() == 1, "no double completion")
+	expect(qm.start_quest("nope").is_empty(), "unknown id -> empty")
+	qm.free()
+
+func test_quest_fail() -> void:
+	var qm = QuestManagerScript.new()
+	qm.enabled = true
+	var failed_q: Array = []
+	var msgs: Array = []
+	qm.quest_failed.connect(func(q): failed_q.append(q))
+	qm.dmd_message_requested.connect(func(txt, _d, anim): msgs.append([txt, anim]))
+	qm.start_quest("mine_cart")
+	var limit := float(qm.active_quest["time_limit"])
+	qm.tick(QuestManagerScript.INTRO_GRACE - 0.1)
+	expect(is_equal_approx(qm.time_left, limit), "clock frozen during intro grace")
+	qm.tick(0.2)
+	qm.enabled = false
+	qm.tick(100.0)
+	expect(qm.is_active(), "disabled (no ball in play) -> clock frozen")
+	qm.enabled = true
+	qm.tick(limit - QuestManagerScript.HURRY_AT + 0.5)
+	expect(msgs.size() == 1 and msgs[0][0] == "HURRY UP!", "hurry-up message once")
+	expect(qm.is_active(), "still running before limit")
+	qm.tick(10.0)
+	expect(not qm.is_active() and failed_q.size() == 1, "timeout -> failed")
+	qm.on_event("ramp")
+	expect(failed_q.size() == 1 and not qm.is_active(), "events after fail ignored")
+	qm.free()
+
+func test_quest_trigger() -> void:
+	var qm = QuestManagerScript.new()
+	qm.rng.seed = 1234
+	qm.reset()
+	qm.enabled = true
+	qm.notify_points_scored(1000)
+	expect(not qm.is_active(), "no quest before first delay")
+	qm.tick(QuestManagerScript.FIRST_DELAY_MAX + 1.0)
+	qm.enabled = false
+	for i in 50:
+		qm.notify_points_scored(1000)
+	expect(not qm.is_active(), "no trigger while disabled")
+	qm.enabled = true
+	qm.notify_points_scored(0)
+	var tries := 0
+	while not qm.is_active() and tries < 200:
+		qm.notify_points_scored(500)
+		tries += 1
+	expect(qm.is_active(), "scoring eventually starts a quest")
+	var first_id := String(qm.active_quest["id"])
+	qm.abort()
+	expect(not qm.is_active(), "abort clears")
+	qm.tick(QuestManagerScript.COOLDOWN_MAX + 1.0)
+	qm.start_random_quest()
+	expect(String(qm.active_quest["id"]) != first_id, "never the same quest twice in a row")
+	qm.free()
+
+func test_rules_award_quest() -> void:
+	var r = RulesScript.new()
+	r.award_quest(1000)
+	expect(r.score == 0, "ignored in ATTRACT")
+	r.start_game()
+	r.award_quest(1000)
+	expect(r.score == 1000, "awarded")
+	r.set_playfield_mult(2)
+	r.award_quest(1000)
+	expect(r.score == 3000, "x2 playfield applies")
+
+func test_dmd_canvas() -> void:
+	var c = DmdCanvasScript.new()
+	expect(c.buf.size() == 128 * 32, "128x32 buffer")
+	c.text("A", 0, 0)
+	expect(c.buf[2] == 255 and c.buf[0] == 0, "A top row = .###.")
+	expect(DmdCanvasScript.text_width("AB") == 11, "2 glyphs = 11 px")
+	expect(DmdCanvasScript.fit_scale("QUEST", 3) == 3, "short word fits x3")
+	expect(DmdCanvasScript.fit_scale("OUTRUN THE BOULDER", 3) == 1, "long title x1")
+	for k in c.FONT.keys():
+		expect((c.FONT[k] as Array).size() == 7, "glyph %s has 7 rows" % k)
+	expect(DmdAnimScript._commas(150000) == "150,000", "commas")
+	expect(DmdAnimScript._commas(999) == "999", "no comma under 1000")
 
 func test_slot_target_math() -> void:
 	var rng := RandomNumberGenerator.new()

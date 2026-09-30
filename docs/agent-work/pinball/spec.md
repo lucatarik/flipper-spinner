@@ -1112,3 +1112,110 @@ identical to before this part.
   sit close to the drain with a small but real gap (should not stick into the drain sensor);
   (5) the top-left wing — does it still clear the curved ceiling through its full swing at its
   new, higher position.
+
+## Part O — SLOT ONLY mode, pause/INFO menus, quest system on a dot-matrix display
+First round **verified in a real engine**: Godot 4.7.2 (official Linux build) turned out to be
+downloadable from this sandbox, so everything below was run headless (unit + physics suites)
+and rendered under Xvfb/llvmpipe (screenshots of every new screen, plus a deterministic dump of
+every DMD animation frame straight from the frame buffer). The same runs also exposed several
+**real bugs from earlier rounds**, fixed here (O5).
+
+### O1 Quest system (inspired by the 1993 adventure-pinball DMD video modes)
+- `scripts/quest_manager.gd` (`class_name QuestManager`, a Node owned by table.gd): pure state +
+  signals `quest_started(quest_data)`, `quest_progress_updated(current, target)`,
+  `quest_completed(quest_data)`, `quest_failed(quest_data)`, `quest_aborted()`,
+  `dmd_message_requested(text, duration, anim_type)`. Quest dicts carry `id, title,
+  description, target_count, current_count, time_limit, reward_points, animations`
+  (`animations` = [intro, progress, success] DMD animation names) plus `events` (the switch
+  kinds that count). Six quests (bumpers / ramps / drop targets / orbits+lanes / slings /
+  scoop+vortex), 120k-250k reward, 25-40 s limits.
+- Trigger: "a random while after scoring" — after a 12-25 s first delay (25-50 s cooldown after
+  each quest) every positive score delta has a 35 % chance to start one; never the same quest
+  twice in a row. The clock only runs while a launched ball is in play (`enabled` mirrors the
+  table's `_slot_active`), is frozen for a 7 s intro grace (intro + scrolling description) and
+  fires a "HURRY UP!" DMD message at 5 s left. Reward via new `Rules.award_quest()` (playfield
+  multiplier applies; nothing while tilted / outside a game). Game over / new game abort it
+  silently.
+- Table wiring: `switch_hit` (bumper, sling, lane, target, orbit, scoop, vortex, bumper_explode)
+  and `_on_ramp_made` feed `quests.on_event()`; `rules.score_changed` feeds the trigger;
+  completion pays out + jackpot sound + light flash/shake. Nothing ever pauses the game.
+
+### O2 DMD display (`scenes/dmd_display.tscn`)
+- `CanvasLayer` (layer 2, under the HUD's 5) -> `Matrix` ColorRect (640x160 at (40,196), mouse
+  filter IGNORE) with `shaders/dmd.gdshader`, plus the `DMDAnimationPlayer` node. Fades in only
+  while there is something to show.
+- Rendering: a real 128x32 frame buffer (`scripts/dmd_canvas.gd`, one brightness byte per dot)
+  uploaded as an L8 `ImageTexture` at 30 fps; the shader draws each texel as a round amber
+  (#ffaa00) LED with glow and neighbour bleed; unlit dots are a faint grid; the background is
+  transparent. **Deviation from the brief, on purpose**: text is drawn with a built-in 5x7
+  bitmap font *into the dot grid* instead of `Label` nodes — a Label's vector glyphs can't snap
+  to LED dots, the bitmap font can (and supports marquee/zoom/blink at native resolution).
+  Likewise the "SpriteFrames" are procedural pixel art painted per frame at 128x32 (no image
+  assets needed): whip reveal + crack starburst, mine cart, boulder chasing a runner, skulls
+  with flickering eyes, snakes, golden idol with twinkles.
+- Legibility fix found via screenshots: amber dots on a fully transparent background vanished
+  against the gold idol artwork. The shader now paints a dark "stroke" hugging lit content (max
+  of the 5x5 neighbourhood), like outlined text — still transparent everywhere else.
+- `scripts/dmd_animation_player.gd`: scene queue + optional idle scene; builders `intro`,
+  `marquee`, `zoom`, `blink`, `success` (QUEST/COMPLETE zoom, then idol + comma-formatted
+  points count-up), `fail` (blinking QUEST/FAILED, then a stable-hash dissolve), `progress`
+  (live: title, hits x/y, "n MORE", seconds (blinks under 5 s), progress bar, themed looping
+  strip; each hit pops the new count up big for 0.7 s).
+
+### O3 SLOT ONLY mode (`S`)
+- `scripts/slot_only.gd` (CanvasLayer 10, PROCESS_MODE_ALWAYS): pauses the tree and shows a
+  second `slot.tscn` instance in new `manual_mode` at 1.8x, with credits (100 to start, INSERT
+  COIN +100), bet 1-5 x 10 lines, SPIN, HOLD 1-5 (after a losing spin only, max 4, not during
+  free spins — can't be farmed), gold HELD frames over held reels, status line. Own
+  SlotMachine, own credits; never touches the pinball score. Exit refuses mid-spin.
+- `slot_view.gd`: `manual_mode` (no auto-spin), `request_spin(held)`, `is_idle()`; held reels
+  keep last spin's column, never scroll, no stop click; "all stopped" now checks every reel
+  (with holds the last reel can stop at t=0); pinball-bonus banner suppressed in manual mode.
+- `sfx.gd` is now PROCESS_MODE_ALWAYS so the slot (and pause menu) still has sound.
+- Key conflicts: `S` is also the layout editor's save key — only while the editor is active,
+  and then the tree is paused so the table's SLOT ONLY poll can't run. The same S press that
+  closes SLOT ONLY (input event) would be seen again by that frame's action poll and reopen
+  it — guarded with a 300 ms window. `layout_editor._toggle()` now refuses to open while
+  something else owns the pause.
+
+### O4 Pause menu + INFO
+- There was no pause menu before; added to `hud.gd` (HUD now layer 5, PROCESS_MODE_ALWAYS):
+  `P`/`Esc` -> PAUSED with RESUME / INFO / SLOT ONLY. Only mid-game, never while SLOT ONLY or
+  the layout editor owns the pause (`table.pause_blocked()`).
+- INFO (`I`, or buttons on the start menu and pause menu): opaque full-screen list of every
+  command (`hud.gd` `INFO_ROWS`, mirrored in README "Controls"). `I` mid-game pauses first.
+- New input actions: `pause` (P, Esc), `info` (I), `slot_only` (S).
+
+### O5 Pre-existing bugs found by actually running the engine
+- **Ball could never drain down the middle**: with the +20 % bats the resting tips were 22.6 px
+  apart centre-to-centre, less than ball (24) + two tip caps (2x7) -> the ball sat on the tips
+  (`idle-flipper ball drains` smoke test, failing since that round). Pivots 214/440 -> 202/452
+  (~46.6 px, ~8 px to spare); inlane guide ends now derive from the pivots in x too.
+- **Both redesigned ramps were impossible to complete** (Part N's blind geometry), three causes:
+  1. physical rail colliders pinched the ball at sharp bends and blocked it wherever wires cross
+     (the figure-8 itself; R2's return passes over R1's entrance). The ball is already held on
+     the centreline kinematically, so rail colliders are removed entirely.
+  2. `ramp.gd` projected the speed onto the *new* segment's tangent every frame: every vertex
+     cost speed x cos(angle) and any bend > 90° reversed the ball. Now projects onto the
+     previous frame's tangent (speed survives bends, gravity still acts) + Chaikin smoothing
+     (2 passes) of every centreline, and the backwards kink at the figure-8 crossing removed.
+  3. playfield sensors grabbed balls riding overhead — the scoop froze a ball on the figure-8
+     for ~1 s, a vortex pit did the same further on. Riding balls now leave collision layer 2
+     (restored on exit/fall-back).
+  Result: both ramps are made at 1600 / 2200 / 3000 px/s shots; weak shots still fall back.
+- `bumper.gd` / `mini_bumper.gd` toggled `Area2D.monitoring` inside a physics callback (engine
+  error spam every explode) -> `set_deferred`.
+- Tests updated for intentional layout moves only: cradle spawn point now relative to the left
+  pivot; the new-bumper test retries from the opposite side (a vortex pit in the saved layout
+  sits right on one mini bumper's approach line and swallowed the test ball).
+
+## Acceptance (Part O) — run
+- `run_tests.gd`: 43/43 pass (5 new: quest complete/fail/trigger, award_quest, DMD canvas) —
+  including `test_slot_target_math`, i.e. Part M7's +15 % book weight is confirmed in range
+  (hit 36.7 %, free spins 1/71, 8.41 credits/spin).
+- `physics_smoke.gd`: 22/22 pass (was 18/22 on the previous commit).
+- Rendered checks (Xvfb): start menu, INFO, pause, every DMD stage over the live table, SLOT
+  ONLY idle/spinning/holds; scripted: quest reward credited (+150,000), SLOT ONLY pauses and
+  unpauses the tree, a spin costs 10 credits at bet 1, held reels keep their symbols.
+- Still worth a human look: overall feel/pacing of quest frequency and difficulty, and the DMD
+  position over the upper playfield on a real display.

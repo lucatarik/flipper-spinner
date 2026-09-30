@@ -1,7 +1,11 @@
 extends Node2D
-## Elevated ramp (D2). A centreline polyline with two gold rails on physics layer 5
-## (bit 16) that playfield balls never touch. A ball entering through the mouth while
-## moving into the ramp is switched to layer-16 collision, lifted above the table
+## Elevated ramp (D2). A centreline polyline drawn as two gold wire rails. The
+## rails have NO colliders: the ball is held on the centreline kinematically
+## (below), and physical rails only ever got in the way — they pinched the ball
+## at sharp bends and blocked it wherever two wires cross (the figure-8, or one
+## ramp passing over another's entrance). A ball entering through the mouth while
+## moving into the ramp is switched to layer-16 collision (nothing lives on that
+## layer any more, so it touches nothing while riding), lifted above the table
 ## (scale + drop shadow) and guided along the centreline; gravity acts on its
 ## along-path speed, so a weak shot rolls back out (FALL BACK) and a strong one
 ## exits at the end point onto the playfield layers (EXIT) and emits `made`.
@@ -36,7 +40,7 @@ var _mouth: Area2D
 func configure(p_name: String, centre: PackedVector2Array, mouth_direction: Vector2,
 		commit_point: Vector2, exit_direction: Vector2) -> void:
 	ramp_name = p_name
-	points = centre
+	points = _smooth(centre, 2)
 	mouth_dir = mouth_direction.normalized()
 	exit_dir = exit_direction.normalized()
 	_compute_lengths()
@@ -46,6 +50,26 @@ func configure(p_name: String, centre: PackedVector2Array, mouth_direction: Vect
 func _ready() -> void:
 	if points.size() > 1 and _lamps.is_empty():
 		call_deferred("_build")
+
+## Chaikin corner cutting (endpoints kept): hand-placed centrelines with sharp
+## bends become rounded wire curves, for both the drawing and the ride.
+static func _smooth(src: PackedVector2Array, iterations: int) -> PackedVector2Array:
+	var pts := src
+	for it in iterations:
+		if pts.size() < 3:
+			return pts
+		var out := PackedVector2Array()
+		out.append(pts[0])
+		for i in pts.size() - 1:
+			var a := pts[i]
+			var b := pts[i + 1]
+			if i > 0:
+				out.append(a.lerp(b, 0.25))
+			if i < pts.size() - 2:
+				out.append(a.lerp(b, 0.75))
+		out.append(pts[pts.size() - 1])
+		pts = out
+	return pts
 
 func _compute_lengths() -> void:
 	_seg_len = []
@@ -115,13 +139,18 @@ func _enter(ball: RigidBody2D) -> void:
 	if _balls.has(id):
 		return
 	ball.collision_mask = 16
+	# Off the playfield layer while riding, so the table's sensors (scoop,
+	# vortex pits, lanes, bumpers...) can't grab a ball passing overhead —
+	# the figure-8 goes right over the idol scoop.
+	ball.set_meta("ramp_saved_layer", ball.collision_layer)
+	ball.collision_layer = 0
 	ball.set_meta("on_ramp", true)
 	ball.set_meta("ramp_name", ramp_name)
 	ball.z_index = 7
 	if ball.has_method("set_lifted"):
 		ball.set_lifted(true)
 	var s := clampf(_project(ball.global_position), 0.0, _total)
-	_balls[id] = {"s": s, "committed": false}
+	_balls[id] = {"s": s, "committed": false, "t": _tangent_at(s)}
 	_ball_nodes[id] = ball
 	entered.emit(ramp_name)
 
@@ -136,17 +165,23 @@ func _physics_process(delta: float) -> void:
 			continue
 		var rec: Dictionary = _balls[id]
 		var s: float = float(rec["s"])
-		var t := _tangent_at(s)
-		# The physics server already applied gravity, so read the along-path speed.
-		var speed: float = ball.linear_velocity.dot(t)
+		# The physics server already applied gravity to the velocity we set
+		# last frame (along last frame's tangent), so project onto THAT tangent:
+		# the along-path speed survives bends like on a real wire. Projecting
+		# onto the new segment's tangent instead bled speed at every vertex
+		# (x cos angle) and reversed the ball outright at any bend over 90°.
+		var prev_t: Vector2 = rec.get("t", _tangent_at(s))
+		var speed: float = ball.linear_velocity.dot(prev_t)
 		s += speed * delta
 		if s <= 0.0 and speed < 0.0:
-			_fall_back(int(id), ball, t, speed)
+			_fall_back(int(id), ball, prev_t, speed)
 			continue
 		if s >= _total:
 			_exit(int(id), ball, speed)
 			continue
+		var t := _tangent_at(s)
 		rec["s"] = s
+		rec["t"] = t
 		if not bool(rec["committed"]) and s >= commit_s:
 			rec["committed"] = true
 		ball.global_position = _point_at(s)
@@ -168,6 +203,8 @@ func _cleanup(id: int, ball: RigidBody2D) -> void:
 	_balls.erase(id)
 	_ball_nodes.erase(id)
 	ball.collision_mask = PLAYFIELD_MASK
+	ball.collision_layer = int(ball.get_meta("ramp_saved_layer", 2))
+	ball.remove_meta("ramp_saved_layer")
 	ball.remove_meta("on_ramp")
 	ball.remove_meta("ramp_name")
 	ball.z_index = 6
@@ -180,7 +217,6 @@ func _build() -> void:
 	if not _lamps.is_empty() or points.size() < 2:
 		return
 	_build_visuals()
-	_build_rails()
 	_build_mouth()
 
 ## Wireform look (user request, matching a real elevated-wire pinball ramp):
@@ -262,26 +298,6 @@ func _offset_path(side: float, dist: float) -> PackedVector2Array:
 			d = (points[i + 1] - points[i - 1]).normalized()
 		out.append(points[i] + Vector2(-d.y, d.x) * dist * side)
 	return out
-
-func _build_rails() -> void:
-	var sb := StaticBody2D.new()
-	sb.name = "RampRails"
-	sb.collision_layer = 16
-	sb.collision_mask = 0
-	add_child(sb)
-	for i in points.size() - 1:
-		for side in [1.0, -1.0]:
-			_add_rail_quad(sb, points[i], points[i + 1], side)
-
-func _add_rail_quad(sb: StaticBody2D, a: Vector2, b: Vector2, side: float) -> void:
-	var d := (b - a).normalized()
-	var n := Vector2(-d.y, d.x) * side
-	var c := n * (WIDTH * 0.5)
-	var half := n * (RAIL_THICK * 0.5)
-	var poly := PackedVector2Array([a + c + half, b + c + half, b + c - half, a + c - half])
-	var cp := CollisionPolygon2D.new()
-	cp.polygon = poly
-	sb.add_child(cp)
 
 func _build_mouth() -> void:
 	_mouth = Area2D.new()

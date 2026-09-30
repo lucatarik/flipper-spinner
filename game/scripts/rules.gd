@@ -239,6 +239,13 @@ func _award(points: int) -> void:
 	score += points * playfield_mult
 	score_changed.emit(score)
 
+## Quest reward (QuestManager -> table). Same playfield multiplier as every
+## other award; nothing while tilted or outside a game.
+func award_quest(points: int) -> void:
+	if state != State.PLAYING or tilted or points <= 0:
+		return
+	_award(points)
+
 func set_playfield_mult(m: int) -> void:
 	if m == playfield_mult:
 		return
