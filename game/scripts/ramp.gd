@@ -6,18 +6,27 @@ extends Node2D
 ## ramp passing over another's entrance). A ball entering through the mouth while
 ## moving into the ramp is switched to layer-16 collision (nothing lives on that
 ## layer any more, so it touches nothing while riding), lifted above the table
-## (scale + drop shadow) and guided along the centreline; gravity acts on its
-## along-path speed, so a weak shot rolls back out (FALL BACK) and a strong one
-## exits at the end point onto the playfield layers (EXIT) and emits `made`.
+## (scale + drop shadow) and then SCRIPTED along the whole centreline: any ball
+## that goes in with enough force to start rolling always completes the ramp
+## (user request) at a steady ride speed, then drops back onto the playfield at
+## the end point (EXIT) at a gentle, catchable speed and emits `made`. A shot
+## too weak to enter (under MOUTH_SPEED into the mouth) simply isn't taken.
 
 signal entered(ramp_name: String)
 signal made(ramp_name: String)
 
 const WIDTH := 36.0
 const RAIL_THICK := 5.0
-const MOUTH_SPEED := 250.0
-const MIN_EXIT_SPEED := 200.0
-const GRAVITY := 1400.0
+## Entry: moving into the mouth faster than this (px/s) inside MOUTH_RADIUS.
+const MOUTH_SPEED := 150.0
+const MOUTH_RADIUS := 44.0
+## Scripted ride speed = the entry speed clamped to this range; it eases a
+## little faster on descents and slower on climbs so it still feels physical.
+const RIDE_MIN_SPEED := 900.0
+const RIDE_MAX_SPEED := 1500.0
+const RIDE_SLOPE_ACCEL := 500.0
+## Leaving the wire: slow enough for the player to catch on the flipper.
+const EXIT_SPEED := 420.0
 const PLAYFIELD_MASK := 7  # layers 1|2|3 (walls, ball, flippers)
 
 const STONE_DARK := Color("#4a4030")
@@ -35,6 +44,8 @@ var _balls := {}
 var _ball_nodes := {}
 var _lamps: Array = []
 var _chase := 0.0
+var _arrow: Node2D
+var _pulse_t := 0.0
 var _mouth: Area2D
 
 func configure(p_name: String, centre: PackedVector2Array, mouth_direction: Vector2,
@@ -149,9 +160,13 @@ func _enter(ball: RigidBody2D) -> void:
 	ball.z_index = 7
 	if ball.has_method("set_lifted"):
 		ball.set_lifted(true)
-	var s := clampf(_project(ball.global_position), 0.0, _total)
-	_balls[id] = {"s": s, "committed": false, "t": _tangent_at(s)}
+	# always ride from the start of the wire, whatever edge of the (big) mouth
+	# the ball clipped
+	var ride := clampf(ball.linear_velocity.length(), RIDE_MIN_SPEED, RIDE_MAX_SPEED)
+	_balls[id] = {"s": 0.0, "committed": false, "v": ride, "v0": ride}
 	_ball_nodes[id] = ball
+	ball.global_position = points[0]
+	ball.linear_velocity = _tangent_at(0.0) * ride
 	entered.emit(ramp_name)
 
 func _physics_process(delta: float) -> void:
@@ -165,37 +180,26 @@ func _physics_process(delta: float) -> void:
 			continue
 		var rec: Dictionary = _balls[id]
 		var s: float = float(rec["s"])
-		# The physics server already applied gravity to the velocity we set
-		# last frame (along last frame's tangent), so project onto THAT tangent:
-		# the along-path speed survives bends like on a real wire. Projecting
-		# onto the new segment's tangent instead bled speed at every vertex
-		# (x cos angle) and reversed the ball outright at any bend over 90°.
-		var prev_t: Vector2 = rec.get("t", _tangent_at(s))
-		var speed: float = ball.linear_velocity.dot(prev_t)
-		s += speed * delta
-		if s <= 0.0 and speed < 0.0:
-			_fall_back(int(id), ball, prev_t, speed)
-			continue
-		if s >= _total:
-			_exit(int(id), ball, speed)
-			continue
 		var t := _tangent_at(s)
+		# Scripted ride: never stalls or rolls back. Screen-down (+y) slopes
+		# speed it up a bit, climbs slow it, always within the ride range.
+		var v: float = float(rec["v"]) + t.y * RIDE_SLOPE_ACCEL * delta
+		v = clampf(v, RIDE_MIN_SPEED, RIDE_MAX_SPEED)
+		rec["v"] = v
+		s += v * delta
+		if s >= _total:
+			_exit(int(id), ball)
+			continue
 		rec["s"] = s
-		rec["t"] = t
 		if not bool(rec["committed"]) and s >= commit_s:
 			rec["committed"] = true
 		ball.global_position = _point_at(s)
-		ball.linear_velocity = t * speed
+		ball.linear_velocity = _tangent_at(s) * v
 
-func _fall_back(id: int, ball: RigidBody2D, tangent: Vector2, speed: float) -> void:
-	_cleanup(id, ball)
-	ball.global_position = points[0] - mouth_dir * 26.0
-	ball.linear_velocity = tangent.normalized() * minf(speed, -MIN_EXIT_SPEED)
-
-func _exit(id: int, ball: RigidBody2D, speed: float) -> void:
+func _exit(id: int, ball: RigidBody2D) -> void:
 	_cleanup(id, ball)
 	ball.global_position = points[points.size() - 1]
-	ball.linear_velocity = exit_dir * maxf(absf(speed), MIN_EXIT_SPEED)
+	ball.linear_velocity = exit_dir * EXIT_SPEED
 	made.emit(ramp_name)
 	_chase = 1.0
 
@@ -307,11 +311,55 @@ func _build_mouth() -> void:
 	_mouth.position = points[0]
 	var cs := CollisionShape2D.new()
 	var c := CircleShape2D.new()
-	c.radius = 24.0
+	c.radius = MOUTH_RADIUS
 	cs.shape = c
 	_mouth.add_child(cs)
 	add_child(_mouth)
 	_mouth.body_entered.connect(_on_mouth_body)
+	_build_entry_arrow()
+
+## Big pulsing "shoot here" arrow on the playfield just below the mouth,
+## pointing into it, with the ramp's name under it (user: mark where each
+## ramp starts). Purely visual.
+func _build_entry_arrow() -> void:
+	_arrow = Node2D.new()
+	_arrow.position = points[0] - mouth_dir * 6.0  # below would sit on the wing bats
+	_arrow.rotation = Vector2.UP.angle_to(mouth_dir)
+	_arrow.z_index = 4
+	add_child(_arrow)
+	var shape := PackedVector2Array([
+		Vector2(0, -26), Vector2(20, -4), Vector2(8, -4), Vector2(8, 22),
+		Vector2(-8, 22), Vector2(-8, -4), Vector2(-20, -4)])
+	var glow := Polygon2D.new()
+	var big := PackedVector2Array()
+	for v in shape:
+		big.append(v * 1.45)
+	glow.polygon = big
+	glow.color = Color(1.0, 0.75, 0.2, 0.25)
+	_arrow.add_child(glow)
+	var body := Polygon2D.new()
+	body.polygon = shape
+	body.color = Color("#ffd24a")
+	_arrow.add_child(body)
+	var edge := Line2D.new()
+	var loop := shape.duplicate()
+	loop.append(shape[0])
+	edge.points = loop
+	edge.width = 3.0
+	edge.default_color = Color("#3a2408")
+	edge.joint_mode = Line2D.LINE_JOINT_ROUND
+	_arrow.add_child(edge)
+	var label := Label.new()
+	label.text = ramp_name.replace(" RAMP", "")
+	label.add_theme_font_size_override("font_size", 15)
+	label.add_theme_color_override("font_color", Color("#ffe9a8"))
+	label.add_theme_color_override("font_outline_color", Color("#2a1604"))
+	label.add_theme_constant_override("outline_size", 5)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.size = Vector2(90, 20)
+	label.position = _arrow.position + Vector2(-45, 26)
+	label.z_index = 4
+	add_child(label)
 
 func _make_dot(pos: Vector2, radius: float) -> Polygon2D:
 	var pts := PackedVector2Array()
@@ -327,6 +375,11 @@ func _make_dot(pos: Vector2, radius: float) -> Polygon2D:
 	return p
 
 func _process(delta: float) -> void:
+	_pulse_t += delta
+	if _arrow:
+		var k := 0.5 + 0.5 * sin(_pulse_t * 5.0)
+		_arrow.modulate = Color(1, 1, 1).lerp(Color(1.6, 1.4, 1.0), k)
+		_arrow.scale = Vector2.ONE * (1.0 + 0.08 * k)
 	if _chase <= 0.0:
 		return
 	_chase = maxf(_chase - delta * 0.7, 0.0)

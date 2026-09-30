@@ -32,10 +32,17 @@ material from either source.
   ball save) on touch — they have no collision at all, so the ball just rolls
   straight through them.
 - Two elevated **wireform ramps** (an open metal-wire rail, not a solid track —
-  the playfield art stays visible underneath as the ball rides the wire): one
-  loops in a full figure-8 around the central idol scoop, the other arches
-  over the top of the table and snakes back down to drop the ball almost dead
-  centre between the two main flippers.
+  the playfield art stays visible underneath as the ball rides the wire),
+  each marked by a pulsing gold arrow on the table. The TEMPLE ramp (entrance
+  above the right wing flipper) loops in a full figure-8 around the idol scoop
+  and returns the ball to the left inlane; the IDOL ramp (entrance above the
+  left wing flipper) climbs the left side, arches over the top of the table,
+  snakes, and returns the ball to the right inlane. Any shot that goes in with
+  enough force to start rolling is carried all the way round.
+- **The idol awakens**: every so often the golden idol at the top of the table
+  wakes up (pulsing glow, burning eyes, a message on the DMD). Touch it while
+  it's awake and it kidnaps the ball, shakes it for a moment, then hurls it out
+  at high speed in a random direction.
 - A drop-target bank ("I-N-D-Y"), rollover lanes, orbits, a central idol
   scoop, slingshots, a mode ladder, "Eternal Life" multiball, ball save,
   extra balls, nudge, and a proper tilt system that kills the flippers and

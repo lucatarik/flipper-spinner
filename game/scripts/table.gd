@@ -21,6 +21,7 @@ const RampScript = preload("res://scripts/ramp.gd")
 const MiniBumperScript = preload("res://scripts/mini_bumper.gd")
 const KickbackHoleScript = preload("res://scripts/kickback_hole.gd")
 const RetroArrowsScript = preload("res://scripts/retro_arrows.gd")
+const IdolGrabScript = preload("res://scripts/idol_grab.gd")
 const SoftBonusScript = preload("res://scripts/floating_bonus.gd")
 const LayoutEditorScript = preload("res://scripts/layout_editor.gd")
 const QuestManagerScript = preload("res://scripts/quest_manager.gd")
@@ -160,8 +161,11 @@ const SLING_RIGHT_KICK := Vector2(-0.868, -0.497)
 ## photo) since the rail Line2D nodes draw at z_index 7-8, well above bumpers.
 ## Mouth/rise and the return tail down to the left inlane are unchanged.
 const R1_NAME := "TEMPLE RAMP"
+## Mouth moved from (528,812) to (482,838): a sweep of 88 real flipper shots
+## showed the old spot was crossed by upward shots only 9 times vs ~16 here —
+## and it now sits right above the right wing flipper, which can feed it.
 const R1_POINTS := [
-	Vector2(528, 812), Vector2(528, 700), Vector2(528, 610),
+	Vector2(482, 838), Vector2(500, 760), Vector2(522, 690), Vector2(528, 610),
 	Vector2(532, 480), Vector2(535, 300),
 	Vector2(523, 255), Vector2(490, 222), Vector2(445, 210), Vector2(400, 222), Vector2(367, 255), Vector2(355, 300),
 	Vector2(353, 345), Vector2(320, 378), Vector2(275, 390), Vector2(230, 378), Vector2(197, 345), Vector2(185, 300),
@@ -172,37 +176,37 @@ const R1_POINTS := [
 ]
 const R1_COMMIT := Vector2(528, 640)
 const R1_EXIT_DIR := Vector2(0, 1)
-## R2 redesigned as a half-arch that then snakes back down and closes near the
-## centre (user request: "quella superiore deve fare mezza arcata per poi
-## chiudersi al centro, stile serpente", plus the earlier "fai scendere la
-## palla quasi al centro del flipper"). Rise unchanged; then a single arch
-## sweeps right-to-left across the top of the table (mirroring R1's mouth-side
-## rise, staying clear of the scoop/R1 loops which own that space); a short
-## snake wiggles back toward the right, then a straight run descends on the
-## RIGHT side of the slot window (window spans world x 130-530, y 566-806;
-## this column sits at x~540-565, a clean ~10-35px outside it, and roughly
-## parallel to R1's own rise column at x~528-535 further left — two ramps
-## running side by side down the right side is already this table's style).
-## Final points curve left to land at x=327, the midpoint between the two
-## main flipper pivots (214, 440), so the ball drops "almost dead centre
-## between the flippers" from y=860 — comfortable fall height for a catch.
+## R2 "IDOL RAMP": half arch over the top of the table, a short snake, then
+## down the right side to the right inlane.
+## Mouth on the LEFT at (236,866), just above the left wing flipper: once the
+## TEMPLE RAMP mouth moved to (482,838) it caught nearly every shot heading up
+## the right side (sweep of 88 real flipper+wing shots: 15/15 made there, 0
+## ever reaching the old IDOL mouth at (568,505)), so this ramp is now fed by
+## the right flipper shooting up-left, where the sweep saw ~20 hits.
+## Climbs the left edge (x~60, outside the slot window x 130-530), arches
+## left-to-right over the dome, snakes on the right, then descends the right
+## side and drops the ball onto the right inlane guide — it rolls to the right
+## flipper (the old exit dropped it straight down the centre drain).
 const R2_NAME := "IDOL RAMP"
 const R2_POINTS := [
-	Vector2(590, 452), Vector2(590, 340), Vector2(588, 300),
-	Vector2(582, 245), Vector2(560, 190), Vector2(520, 148), Vector2(465, 118),
-	Vector2(400, 103), Vector2(335, 110), Vector2(280, 133), Vector2(240, 172), Vector2(212, 220),
-	Vector2(260, 270), Vector2(300, 235), Vector2(345, 275), Vector2(320, 330),
-	Vector2(370, 360), Vector2(410, 410), Vector2(460, 440), Vector2(500, 490), Vector2(540, 530),
+	Vector2(236, 866), Vector2(205, 832), Vector2(160, 806), Vector2(110, 780),
+	Vector2(72, 745), Vector2(62, 690), Vector2(60, 600), Vector2(60, 500),
+	Vector2(62, 420), Vector2(72, 340), Vector2(95, 270), Vector2(135, 205),
+	Vector2(190, 155), Vector2(255, 122), Vector2(330, 104), Vector2(400, 103),
+	Vector2(465, 118), Vector2(520, 148), Vector2(560, 190), Vector2(582, 245),
+	Vector2(588, 300), Vector2(560, 340), Vector2(585, 385), Vector2(558, 430),
+	Vector2(580, 475), Vector2(562, 520),
 	Vector2(560, 570), Vector2(565, 650), Vector2(560, 740), Vector2(555, 810),
-	Vector2(450, 850), Vector2(380, 870), Vector2(327, 860),
+	Vector2(575, 865), Vector2(596, 905), Vector2(604, 935),
 ]
-const R2_COMMIT := Vector2(590, 380)
-const R2_EXIT_DIR := Vector2(0, 1)
+const R2_COMMIT := Vector2(60, 600)
+const R2_EXIT_DIR := Vector2(-0.2, 1)
 
 const SCOOP_POS := Vector2(360, 300)
+## Over the golden idol in the playfield art (just above the scoop).
+const IDOL_POS := Vector2(360, 215)
 const TARGET_X := 610.0
 const TARGET_YS := [500.0, 558.0, 616.0, 674.0]
-const LANE_POST_XS := [270.0, 330.0, 390.0, 450.0]
 const LANE_SENSOR_XS := [300.0, 360.0, 420.0]
 const LANE_TOP := 115.0
 const LANE_BOTTOM := 190.0
@@ -234,6 +238,7 @@ var new_bumpers: Array = []
 var mini_bumpers: Array = []
 var bonus_bumper_nodes: Array = []
 var vortex_holes: Array = []
+var idol
 
 var _walls: StaticBody2D
 var _drain_area: Area2D
@@ -411,6 +416,8 @@ func _physics_process(delta: float) -> void:
 	if quests:
 		# quest clocks/triggers only run while a launched ball is really in play
 		quests.enabled = _slot_active
+	if idol:
+		idol.enabled = _slot_active
 	_update_music()
 	_update_soft_bonus(delta)
 	_update_camera_follow(delta)
@@ -894,11 +901,24 @@ func _build_walls() -> void:
 	# "i muri del flipper non li hai allungati, hai spostato solo le palette").
 	# End Y follows pivot_y - 30, same offset the original (unmoved) walls had
 	# relative to the original pivot, now applied to FLIPPER_LEFT/RIGHT_PIVOT.y.
-	_add_band(Vector2(20, 1000), FLIPPER_LEFT_PIVOT + Vector2(-4.0, -30.0), 16.0)
-	_add_band(Vector2(634, 1000), FLIPPER_RIGHT_PIVOT + Vector2(4.0, -30.0), 16.0)
-	# top rollover lane separators
-	for x in LANE_POST_XS:
-		_add_band(Vector2(x, LANE_TOP), Vector2(x, LANE_BOTTOM), 10.0)
+	# User: the lower ends must come right down level with the flippers, and
+	# the upper ends (at the side walls) go up a little. A single straight
+	# band doing both got too steep and pinched the inlane under each
+	# slingshot to ~21px (ball = 24) — balls wedged there in the physics test.
+	# So: a raised shoulder at the wall, a middle run parallel to the sling's
+	# bottom edge with ~40px of channel, then the drop onto the flipper pivot.
+	for side in [-1.0, 1.0]:
+		var pivot: Vector2 = FLIPPER_LEFT_PIVOT if side < 0.0 else FLIPPER_RIGHT_PIVOT
+		var pts: Array = [Vector2(20, 975), Vector2(45, 1030), Vector2(143, 1080),
+			pivot + Vector2(4.0 * side, 0.0)]
+		if side > 0.0:
+			for i in 3:
+				pts[i] = Vector2(LEFT_WALL_INNER + DIVIDER_INNER - pts[i].x, pts[i].y)
+		for i in pts.size() - 1:
+			_add_band(pts[i], pts[i + 1], 16.0)
+	# (top rollover lane separator posts removed — user: "walls above the idol,
+	# no idea what they're for". The three rollover switches + their lights
+	# still work, so lighting all lanes still bumps the multiplier.)
 
 ## One-way gate at the top of the shooter lane (user request): a ball launched
 ## up and OUT of the lane must always pass, but a ball rolling back down INTO
@@ -1096,6 +1116,14 @@ func _build_drain() -> void:
 	_drain_area.body_entered.connect(_on_drain_area_body)
 
 func _build_features() -> void:
+	idol = IdolGrabScript.new()
+	idol.name = "Idol"
+	idol.position = IDOL_POS
+	add_child(idol)
+	idol.awakened.connect(_on_idol_awakened)
+	idol.captured.connect(_on_idol_captured)
+	idol.released.connect(_on_idol_released)
+
 	scoop = ScoopScript.new()
 	scoop.name = "Scoop"
 	scoop.position = SCOOP_POS
@@ -1167,6 +1195,7 @@ func _build_layout_entries() -> void:
 		_add_layout_field("mini_bumper_%d_b" % i, mini_bumpers[i], "point_b")
 	for i in _soft_spot_markers.size():
 		_add_layout_pos("soft_spot_%d" % i, _soft_spot_markers[i])
+	_add_layout_pos("idol", idol, 40.0)
 
 func _add_layout_pos(entry_name: String, node: Node2D, radius: float = -1.0) -> void:
 	var e := {
@@ -1239,6 +1268,25 @@ func _on_ramp_made(ramp_name: String) -> void:
 	rules.on_event("ramp", {"name": ramp_name})
 	if quests:
 		quests.on_event("ramp")
+
+# --- idol kidnapping -------------------------------------------------------------
+
+func _on_idol_awakened() -> void:
+	_sfx_play("anticipation")
+	if dmd:
+		dmd.show_message("THE IDOL AWAKENS", 1.6, "blink")
+
+func _on_idol_captured() -> void:
+	switch_hit.emit("idol")
+	_sfx_play("scoop", 0.8)
+	rules.on_event("idol_grab")
+	if lights:
+		lights.shake(5.0, 0.3)
+
+func _on_idol_released() -> void:
+	_sfx_play("launch", 1.4)
+	if lights:
+		lights.flash()
 
 # --- quests + DMD -------------------------------------------------------------
 
@@ -1368,6 +1416,8 @@ func _on_state_changed(state: int) -> void:
 		if state == RulesScript.State.PLAYING:
 			_last_score = 0
 			quests.reset()
+			if idol:
+				idol.reset()
 		else:
 			quests.abort()
 	if state != RulesScript.State.PLAYING:

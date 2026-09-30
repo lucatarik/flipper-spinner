@@ -35,6 +35,7 @@ func _run() -> void:
 	var r20: bool = await _scenario_ramps()
 	var r21: bool = await _scenario_slot_active()
 	var r22: bool = await _scenario_stuck_regression()
+	var r23: bool = await _scenario_idol_grab()
 	print("SMOKE: plunger launch reaches field: %s" % ("PASS" if r1 else "FAIL"))
 	print("SMOKE: fired flipper launches ball (vy < -800): %s" % ("PASS" if r2 else "FAIL"))
 	print("SMOKE: idle-flipper ball drains: %s" % ("PASS" if r3 else "FAIL"))
@@ -57,7 +58,8 @@ func _run() -> void:
 	print("SMOKE: full/weak shots into both ramps: %s" % ("PASS" if r20 else "FAIL"))
 	print("SMOKE: slot only spins with a ball in play: %s" % ("PASS" if r21 else "FAIL"))
 	print("SMOKE: 150-seed stuck regression: %s" % ("PASS" if r22 else "FAIL"))
-	var results := [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18, r19, r20, r21, r22]
+	print("SMOKE: idol ignores ball dormant, kidnaps + flings it when awake: %s" % ("PASS" if r23 else "FAIL"))
+	var results := [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18, r19, r20, r21, r22, r23]
 	var failed := 0
 	for r in results:
 		if not r:
@@ -488,8 +490,8 @@ func _scenario_slot_forced_win() -> bool:
 	return reached
 
 ## D-A2: a full-speed shot into each ramp mouth fires `ramp`/made and the ball
-## exits on the playfield layers; a weak shot falls back and returns to playfield
-## layers without making the ramp. While on a ramp the ball's mask is 16 only.
+## exits on the playfield layers; a shot too weak to enter is not taken and
+## never makes the ramp. While on a ramp the ball's mask is 16 only.
 func _scenario_ramps() -> bool:
 	var t = await _new_table()
 	t.rules.start_game()
@@ -529,7 +531,9 @@ func _scenario_ramps() -> bool:
 		var wmade: Array = [0]
 		var wcb := func(_n): wmade[0] += 1
 		ramp.made.connect(wcb)
-		var wb = t.spawn_ball(start, ramp.mouth_dir * 350.0)
+		# below MOUTH_SPEED: must not be taken at all (any shot that IS taken
+		# is scripted to the end, so there is no "falls back" case any more)
+		var wb = t.spawn_ball(start, ramp.mouth_dir * 100.0)
 		t.rules.on_event("ball_added")
 		var weak_ok := false
 		for i in 600:
@@ -629,3 +633,51 @@ func _scenario_stuck_regression() -> bool:
 	await physics_frame
 	return bad == 0
 
+
+## The idol: dormant -> a ball rolls over it untouched; awake -> it grabs the
+## ball, holds it at the idol, then flings it fast, never straight down.
+func _scenario_idol_grab() -> bool:
+	var t = await _new_table()
+	t.rules.start_game()
+	await physics_frame
+	t.set("_slot_ready", true)
+	t.rules.on_event("ball_added")
+	var idol = t.idol
+	var caught: Array = [0]
+	idol.captured.connect(func(): caught[0] += 1)
+	idol.armed = false
+	idol._timer = 1000.0
+	var b = t.spawn_ball(idol.position + Vector2(0, -70), Vector2(0, 400))
+	for i in 120:
+		await physics_frame
+	var dormant_ok: bool = caught[0] == 0
+	if is_instance_valid(b):
+		b.queue_free()
+	await physics_frame
+	idol.arm()
+	b = t.spawn_ball(idol.position + Vector2(0, -70), Vector2(0, 400))
+	var grabbed := false
+	for i in 120:
+		await physics_frame
+		if caught[0] > 0:
+			grabbed = true
+			break
+	var held_ok := false
+	var fling_ok := false
+	if grabbed:
+		for i in int(idol.HOLD * 240.0 * 0.5):
+			await physics_frame
+		held_ok = is_instance_valid(b) and b.global_position.distance_to(idol.global_position) < 8.0
+		for i in int(idol.HOLD * 240.0):
+			await physics_frame
+			if not idol.holding:
+				break
+		for i in 3:
+			await physics_frame
+		if is_instance_valid(b):
+			var v: Vector2 = b.linear_velocity
+			var down := absf(angle_difference(v.angle(), PI * 0.5))
+			fling_ok = v.length() > 1000.0 and down > deg_to_rad(20.0)
+	t.queue_free()
+	await physics_frame
+	return dormant_ok and grabbed and held_ok and fling_ok

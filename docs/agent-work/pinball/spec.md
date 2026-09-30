@@ -1219,3 +1219,55 @@ every DMD animation frame straight from the frame buffer). The same runs also ex
   unpauses the tree, a spin costs 10 credits at bet 1, held reels keep their symbols.
 - Still worth a human look: overall feel/pacing of quest frequency and difficulty, and the DMD
   position over the upper playfield on a real display.
+
+## Part P — ramps rebuilt for real play, flipper walls, idol kidnapping
+User report: one ramp dropped the ball straight into the centre drain; the other was impossible
+to enter; flipper walls not reaching the flippers; unexplained "walls above the idol"; plus a
+new feature — the idol occasionally kidnaps the ball and flings it out. All verified in Godot
+4.7.2 (headless suites + a new shot sweep + rendered screenshots).
+
+### P1 Scripted ramps
+`ramp.gd`: a ball entering the mouth (radius 24 -> 44) moving in faster than MOUTH_SPEED
+(250 -> 150 px/s) is now carried the whole way (no gravity, no fall-back): ride speed = entry
+speed clamped 900-1500 px/s, easing +/-500 px/s² on descents/climbs. It always starts from the
+wire's first point and leaves at a fixed, catchable EXIT_SPEED (420). A pulsing gold arrow +
+the ramp's name sit at each mouth.
+
+### P2 Ramp entrances chosen by measurement, exits moved to the inlanes
+A shot sweep (88 real flipper shots — 2 flippers x 11 ball positions x 4 flip timings, wings
+firing with their side) recorded where fast upward shots actually travel and scored candidate
+mouths. Before: TEMPLE entered 9 / made 0, IDOL entered 6 / made 2.
+- TEMPLE (R1) mouth (528,812) -> (482,838), above the right wing flipper.
+- Moving it made it catch nearly every shot up the right side, so IDOL's old mouth got 0; IDOL
+  (R2) re-routed to start on the LEFT at (236,866), above the left wing flipper: up the left edge
+  (x~60, outside the slot window), arch left-to-right over the dome, short snake on the right,
+  down the right side.
+- IDOL exit moved from dead centre (327,860, straight into the centre drain) to (604,935) on
+  the right inlane; TEMPLE keeps its left-inlane exit. Both verified to roll onto a flipper.
+- After: **TEMPLE 15 entered / 15 made, IDOL 23 entered / 22 made** (the other was still riding
+  when the sweep window closed).
+
+### P3 Flipper walls
+Inlane guides now end level with the flipper pivots and start higher at the side walls (975).
+A single straight band doing both got steep enough to pinch the channel under each slingshot to
+~21 px (ball 24) — balls wedged there in the inlane physics test — so each guide is 3 segments:
+shoulder at the wall -> run parallel to the sling's bottom edge (~40 px channel) -> drop onto
+the pivot. Inlane drops and both ramp exits reach a flipper in 0.6-1.7 s.
+
+### P4 "Walls above the idol"
+They were the posts of the three top rollover lanes — removed; the rollover switches and their
+lights still work (all three lit still bumps the multiplier). Also the HUD's mode progress bar
+background (a dark strip top-left) is now hidden unless a mode is running.
+
+### P5 Idol kidnapping (`scripts/idol_grab.gd`)
+Sensor at IDOL_POS (360,215) over the painted idol, just above the scoop. Dormant 12-25 s of
+real play, then AWAKE up to 12 s (pulsing aura, red eyes, "THE IDOL AWAKENS" on the DMD,
+anticipation sound). A ball touching it while awake is grabbed, shaken for 1.4 s, then flung at
+1500 px/s in a uniformly random direction, re-rolled while within 25° of straight down (no
+instant centre drain). Scores 15,000 (`Rules` event `idol_grab`), counts for the "Eye of the
+Idol" quest, draggable in the layout editor. Riding ramp balls are never grabbed.
+
+## Acceptance (Part P) — run
+- `run_tests.gd` 43/43; `physics_smoke.gd` 23/23 (new: idol ignores a ball while dormant,
+  grabs + holds + flings it >1000 px/s not downward when awake; ramp test: sub-threshold shot is
+  not taken, full shot is made).

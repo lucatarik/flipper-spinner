@@ -64,8 +64,8 @@ const QUESTS: Array = [
 	},
 	{
 		"id": "idol_eye", "title": "EYE OF THE IDOL",
-		"description": "SHOOT THE IDOL SCOOP OR DROP INTO A VORTEX PIT",
-		"events": ["scoop", "vortex"], "target_count": 1, "time_limit": 25.0,
+		"description": "SHOOT THE IDOL SCOOP, A VORTEX PIT, OR GET TAKEN BY THE IDOL",
+		"events": ["scoop", "vortex", "idol"], "target_count": 1, "time_limit": 25.0,
 		"reward_points": 200000, "animations": ["whip", "idol", "idol"],
 	},
 ]

@@ -86,6 +86,7 @@ func _ready() -> void:
 	_tilt_label.visible = false
 	_bar_bg = _make_rect(Vector2(24, 172), Vector2(BAR_W, 14), Color(0.1, 0.09, 0.05, 0.7))
 	_bar_fill = _make_rect(Vector2(24, 172), Vector2(0, 14), GOLD)
+	_bar_bg.visible = false  # only while a mode runs (read as a stray wall)
 	_message_label = _make_label(Vector2(0, 330), 52, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
 	_message_label.size.x = 720
 	_message_label.visible = false
@@ -432,7 +433,9 @@ func _on_mode(mode_name: String, time_left: float, progress: int, goal: int) -> 
 	if mode_name == "":
 		_mode_label.text = ""
 		_bar_fill.size.x = 0.0
+		_bar_bg.visible = false
 	else:
 		_mode_label.text = "%s   %.0fs   %d/%d" % [mode_name, ceilf(time_left), progress, goal]
 		var ratio := 0.0 if goal <= 0 else clampf(float(progress) / float(goal), 0.0, 1.0)
 		_bar_fill.size.x = BAR_W * ratio
+		_bar_bg.visible = true
